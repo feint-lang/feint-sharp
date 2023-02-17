@@ -1,0 +1,247 @@
+# Program --------------------------------------------------------------
+
+program :
+    | statement*
+
+# Statements -----------------------------------------------------------
+
+statement :
+    | statement_type NEWLINE
+
+statement_type :
+    | import
+    | jump
+    | label
+    | continue
+    | expr
+
+import :
+    | "import" IMPORT_PATH IMPORT_IDENT
+    | "import" "from" IMPORT_PATH ":" IMPORT_IDENT ("," IMPORT_IDENT)*
+
+jump :
+    | "jump" VAR_IDENT
+
+label :
+    | ":" VAR_IDENT ":"
+
+# Expressions ----------------------------------------------------------
+
+expr :
+    | basic_expr
+    | simple_expr
+    | compound_expr
+
+# Basic Expressions ----------------------------------------------------
+#
+# Basic expressions can be used anywhere.
+
+basic_expr :
+    | "(" basic_expr ")"
+    | atom
+    | sum
+    | assignment
+
+atom :
+    | "nil"
+    | "true" | "false"
+    | INT
+    | FLOAT
+    | string
+    | format_string
+    | tuple
+    | IDENT
+
+string :
+    | QUOTE CHAR* QUOTE
+
+format_string :
+    | "$" QUOTE format_string_part* QUOTE
+
+format_string_part :
+    | "{" expr "}"
+    | CHAR*
+
+tuple_expr :
+    | basic_expr
+    | inline_expr
+
+tuple :
+    | "(" ")"
+    | "(" tuple_expr "," ")"
+    | "(" tuple_expr ("," tuple_expr)+ [","] ")"
+
+sum :
+    | expr ("+" | "-") product
+    | product
+product :
+    | expr ("*" | "/" | "//" | "%") power
+    | power
+power :
+    | expr ("^" power)
+    | expr
+
+assignment :
+    | IDENT "=" expr
+
+# Simple Expressions ---------------------------------------------------
+#
+# Simple expressions are non-compound expressions that may not be valid
+# in certain places.
+
+simple_expr :
+    | "(" simple_expr ")"
+    | break
+
+break :
+    | "break"
+    | "break" expr
+
+# Compound Expressions -------------------------------------------------
+#
+# Compound expressions contain either an indented block of statements
+# or an inline expression on the same line. Inline compound expressions
+# can be used in all the same places as basic expressions.
+
+compound_expr :
+    | block
+    | if
+    | loop
+    | func
+    | call
+    | type
+    | inline_expr
+
+inline_expr :
+    | inline_block
+    | inline_if
+    | inline_loop
+    | inline_func
+    | inline_type
+
+# A suite is an indented block of statements, often referred to as
+# a block. The name suite is used here to distinguish from block
+# expressions.
+suite :
+    | NEWLINE INDENT statement+ DEDENT
+
+block :
+    | "block" "->" suite
+
+inline_block :
+    | "block" "->" (jump | basic_expr | simple_expr | inline_expr)
+
+if :
+    | "if" cond "->" suite (else_if | inline_else_if)
+    | "if" cond "->" suite [(else | inline_else)]
+else_if :
+    | "else if" cond "->" suite (else_if | inline_else_if)
+    | "else if" cond "->" suite [(else | inline_else)]
+else :
+    | "else" "->" suite
+
+inline_if :
+    | "if" cond "->" expr inline_else_if
+    | "if" cond "->" expr [inline_else]
+inline_else_if :
+    | "else if" cond "->" expr inline_else_if
+    | "else if" cond "->" expr [inline_else]
+inline_else :
+    | "else" "->" expr
+
+match :
+    | "match" cond "->" NEWLINE INDENT (match_arm)+ [default_match_arm]
+    | "match" cond "->" NEWLINE INDENT (match_arm)* default_match_arm
+match_arm :
+    | expr "->" (suite | expr)
+default_match_arm :
+    | ":" "->" (suite | expr)
+
+loop :
+    | "loop" "->" suite
+    | "loop" cond "->" suite
+    | "loop" IDENT "<-" expr "->" suite
+
+inline_loop :
+    | "loop" "->" expr
+    | "loop" cond "->" expr
+    | "loop" IDENT "<-" expr "->" expr
+
+cond :
+    | basic_expr
+    | call
+    | inline_block
+
+func :
+    | params "=>" suite
+
+inline_func :
+    | params "=>" expr
+
+params :
+    | "(" [VAR_IDENT ("," VAR_IDENT)* [","]] ")"
+
+call :
+    | ( expr ) "(" [args] ")"
+
+args :
+    | tuple_expr ("," tuple_expr)* [","]
+
+type :
+    | params "=>" suite
+
+inline_type :
+    | params "=>" expr
+
+# Comments -------------------------------------------------------------
+
+comment :
+    | "#" COMMENT_CHAR*
+
+# Character classes ----------------------------------------------------
+
+CHAR : ".*"
+COMMENT_CHAR : "[^\n]*"
+QUOTE : "[\"']"
+
+IDENT:
+    | VAR_IDENT
+    | SPECIAL_IDENT
+    | TYPE_IDENT
+    | TYPE_FUNC_IDENT
+
+# Identifiers
+VAR_IDENT       : "[a-z]|[a-z][a-z0-9_]*[a-z0-9]"
+CONST_IDENT     : "[A-Z]|[A-Z][A-Z0-9_]*[A-Z0-9]"
+TYPE_IDENT      : "[A-Z]|[A-Z][A-Za-z0-9]*[A-Za-z0-9]"
+TYPE_FUNC_IDENT : "@" VAR_IDENT
+SPECIAL_IDENT   : "$" VAR_IDENT
+
+# Imports
+IMPORT_PATH :
+    | VAR_IDENT ("." VAR_IDENT)*
+IMPORT_IDENT :
+    | VAR_IDENT ["as" VAR_IDENT]
+
+# Numbers --------------------------------------------------------------
+
+NUM : INT | FLOAT
+
+INT : (INT_02 | INT_08 | INT_10 | INT_16)
+
+INT_10  : "[+-]?({ ZERO }|{ NATURAL })"
+INT_02  : "[+-]?0b_?{ BINARY }"
+INT_08  : "[+-]?0o_?{ OCTAL }"
+INT_16  : "[+-]?0x_?{ HEX }"
+
+FLOAT :
+    | "{ DECIMAL }\.{ DECIMAL }"
+    | "{ DECIMAL }(\.{ DECIMAL })?(e|E)[+-]?{ DECIMAL }"
+
+# Numeric character sets allowing for underscores between digits
+ZERO    : "0(_?0+)*"
+BINARY  : "[0-1](_?[0-1]+)*"
+OCTAL   : "[0-7](_?[0-7]+)*"
+DECIMAL : "[0-9](_?[0-9]+)*"
+NATURAL : "[1-9](_?[0-9]+)*"
+HEX     : "[A-Za-z0-9](_?[A-Za-z0-9]+)*"

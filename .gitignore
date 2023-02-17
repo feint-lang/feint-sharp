@@ -1,0 +1,8 @@
+.dotnet/
+.packages/
+.tools/
+.vs/
+bin/
+obj/
+
+.fake

@@ -1,0 +1,137 @@
+{
+open Feint.Compiler.LexerUtil
+open Feint.Compiler.Parser
+open Feint.Compiler.Util
+}
+
+let ws = [' ' '\r' '\t']+
+let nl = '\n'
+
+let ascii_lower = ['a' - 'z']
+let ascii_lower_digits = ['a' - 'z' '0' - '9']
+let ascii_lower_digits_underscore = ['a' - 'z' '0' - '9' '_']
+
+let keyword = '$'? ascii_lower+
+
+let placeholder_ident = '_'+
+let ident = ascii_lower | ascii_lower ascii_lower_digits_underscore* ascii_lower_digits
+let special_ident = '$' ident
+
+let dec = ['0' - '9']
+let bin = ['0' - '1']
+let oct = ['0' - '7']
+let hex = ['0' - '9' 'a' - 'f' 'A' - 'F']
+
+let int_10 = '0' | ['1' - '9'] ('_'? dec+)*
+let int_02 = "0b" bin+
+let int_08 = "0o" oct+
+let int_16 = "0x" hex+
+let int = ['+' '-']? int_10 | int_02 | int_08 | int_16
+
+let float =
+  dec+ '.' dec+
+  | dec+ ('.' dec+) ['e' 'E'] ['+' '-']? dec+
+
+let escaped_char = '\\' _
+let single_quoted_str_char = escaped_char | [^ '\'' '\\']
+let double_quoted_str_char = escaped_char | [^ '"' '\\']
+
+let operator =
+  // Unary
+  '!'
+  | "!!"
+  // Binary
+  | '^'
+  | '*'
+  | '/'
+  | "//"
+  | '%'
+  | '+'
+  | '-'
+  // Short Circuit
+  | "&&"
+  | "||"
+  | "??"
+  // Compare
+  | "$$"
+  | "$!"
+  | "==="
+  | "!=="
+  | "=="
+  | "!="
+  | "<"
+  | "<="
+  | ">"
+  | ">="
+  // In Place
+  | "*="
+  | "/="
+  | "+="
+  | "-="
+  // Assignment
+  | '='
+  | "<-"
+  // Other
+  | '.'
+  | ','
+
+rule read = parse
+  // Whitespace
+  | ws+ [^ '\n'] { dprintn "skip ws"; read lexbuf }
+  | ws* nl {
+      let col = lexbuf.StartPos.Column
+      // dprint $"ws* nl @ {formatPosShort lexbuf} -> "
+      newLine lexbuf
+      match col with
+      | 0 -> read lexbuf
+      | _ -> NL
+    }
+  | ws* eof {
+      // When EOF is found at the end of a blank line, EOF is emitted.
+      // The only case where this is relevant is when the input is empty
+      // or consists entirely of blank lines.
+      //
+      // When EOF is found at the end of a line containing other tokens,
+      // NL is emitted so that the parser can be simplified by not
+      // having to handle EOF specially.
+      // dprint $"ws* eof @ {formatPosShort lexbuf} -> "
+      match lexbuf.StartPos.Column with
+      | 0 -> EOF
+      | _ -> dprintn "emit EOF NL"; NL
+    }
+  // Comments
+  | ('#' ([^ '\n']*) ('\n' | eof)) {
+      newLine lexbuf;
+      COMMENT (lexeme lexbuf)
+    }
+  | ("//" ([^ '\n']*) ('\n' | eof)) {
+      newLine lexbuf;
+      DOC_COMMENT (lexeme lexbuf)
+    }
+  // Scopes
+  | "->" ws* nl { newLine lexbuf; SCOPE_START }
+  | "->" { INLINE_SCOPE_START }
+  | "=>" ws* nl { newLine lexbuf; FUNC_START }
+  | "=>" { INLINE_FUNC_START }
+  // Groupings
+  | '(' { LPAREN }
+  | ')' { RPAREN }
+  | '[' { LBRACE }
+  | ']' { RBRACE }
+  | '{' { LBRACKET }
+  | '}' { RBRACKET }
+  // Keywords (includes types such as nil and bool)
+  | keyword { getKeyword (lexeme lexbuf) }
+  // Identifiers
+  | ident { IDENT (lexeme lexbuf) }
+  | special_ident { SPECIAL_IDENT (lexeme lexbuf) }
+  // Types
+  | int { INT (bigint.Parse (lexeme lexbuf)) }
+  | float { FLOAT (float (lexeme lexbuf)) }
+  | '\'' single_quoted_str_char* '\'' { STR (processStr lexbuf) }
+  | '\'' single_quoted_str_char* { raiseErr "Unterminated single-quoted string literal" }
+  | '"' double_quoted_str_char* '"' { STR (processStr lexbuf) }
+  | '"' double_quoted_str_char* { raiseErr "Unterminated double-quoted string literal" }
+  // Operators
+  | operator { operators.[lexeme lexbuf] }
+  | _ { raiseErr $"Unexpected character in input stream: {lexeme lexbuf}" }
