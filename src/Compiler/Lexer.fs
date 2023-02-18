@@ -196,7 +196,7 @@ and read  lexbuf =
 # 79 "Lexer.fsl"
                            
                      let col = lexbuf.StartPos.Column
-                     newLine lexbuf
+                     addNewLine lexbuf
                      match col with
                      | 0 -> read lexbuf
                      | _ -> NL
@@ -222,22 +222,22 @@ and read  lexbuf =
   | 3 -> ( 
 # 99 "Lexer.fsl"
                                                    
-                     newLine lexbuf;
-                     COMMENT ((lexeme lexbuf).TrimEnd())
+                     addNewLine lexbuf;
+                     COMMENT ((getLexeme lexbuf).TrimEnd())
                    
 # 228 "Lexer.fs"
           )
   | 4 -> ( 
 # 103 "Lexer.fsl"
                                                     
-                     newLine lexbuf;
-                     DOC_COMMENT ((lexeme lexbuf).TrimEnd())
+                     addNewLine lexbuf;
+                     DOC_COMMENT ((getLexeme lexbuf).TrimEnd())
                    
 # 236 "Lexer.fs"
           )
   | 5 -> ( 
 # 108 "Lexer.fsl"
-                                 newLine lexbuf; SCOPE_START 
+                                 addNewLine lexbuf; SCOPE_START 
 # 241 "Lexer.fs"
           )
   | 6 -> ( 
@@ -247,7 +247,7 @@ and read  lexbuf =
           )
   | 7 -> ( 
 # 110 "Lexer.fsl"
-                                 newLine lexbuf; FUNC_START 
+                                 addNewLine lexbuf; FUNC_START 
 # 251 "Lexer.fs"
           )
   | 8 -> ( 
@@ -287,27 +287,27 @@ and read  lexbuf =
           )
   | 15 -> ( 
 # 120 "Lexer.fsl"
-                             getKeyword (lexeme lexbuf) 
+                             getKeyword (getLexeme lexbuf) 
 # 291 "Lexer.fs"
           )
   | 16 -> ( 
 # 122 "Lexer.fsl"
-                           IDENT (lexeme lexbuf) 
+                           IDENT (getLexeme lexbuf) 
 # 296 "Lexer.fs"
           )
   | 17 -> ( 
 # 123 "Lexer.fsl"
-                                   SPECIAL_IDENT (lexeme lexbuf) 
+                                   SPECIAL_IDENT (getLexeme lexbuf) 
 # 301 "Lexer.fs"
           )
   | 18 -> ( 
 # 125 "Lexer.fsl"
-                         INT (bigint.Parse (lexeme lexbuf)) 
+                         INT (bigint.Parse (getLexeme lexbuf)) 
 # 306 "Lexer.fs"
           )
   | 19 -> ( 
 # 126 "Lexer.fsl"
-                           FLOAT (float (lexeme lexbuf)) 
+                           FLOAT (float (getLexeme lexbuf)) 
 # 311 "Lexer.fs"
           )
   | 20 -> ( 
@@ -332,12 +332,12 @@ and read  lexbuf =
           )
   | 24 -> ( 
 # 132 "Lexer.fsl"
-                              operators.[lexeme lexbuf] 
+                              getOperator lexbuf 
 # 336 "Lexer.fs"
           )
   | 25 -> ( 
 # 133 "Lexer.fsl"
-                       raiseErr $"Unexpected character in input stream: {lexeme lexbuf}" 
+                       raiseErr $"Unexpected character in input stream: {getLexeme lexbuf}" 
 # 341 "Lexer.fs"
           )
   | _ -> failwith "read"

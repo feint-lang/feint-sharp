@@ -78,7 +78,7 @@ rule read = parse
   | ws+ { read lexbuf }
   | ws* nl {
       let col = lexbuf.StartPos.Column
-      newLine lexbuf
+      addNewLine lexbuf
       match col with
       | 0 -> read lexbuf
       | _ -> NL
@@ -97,17 +97,17 @@ rule read = parse
     }
   // Comments
   | ('#' ([^ '\n']*) ('\n' | eof)) {
-      newLine lexbuf;
-      COMMENT ((lexeme lexbuf).TrimEnd())
+      addNewLine lexbuf;
+      COMMENT ((getLexeme lexbuf).TrimEnd())
     }
   | ("//" ([^ '\n']*) ('\n' | eof)) {
-      newLine lexbuf;
-      DOC_COMMENT ((lexeme lexbuf).TrimEnd())
+      addNewLine lexbuf;
+      DOC_COMMENT ((getLexeme lexbuf).TrimEnd())
     }
   // Scopes
-  | "->" ws* nl { newLine lexbuf; SCOPE_START }
+  | "->" ws* nl { addNewLine lexbuf; SCOPE_START }
   | "->" { INLINE_SCOPE_START }
-  | "=>" ws* nl { newLine lexbuf; FUNC_START }
+  | "=>" ws* nl { addNewLine lexbuf; FUNC_START }
   | "=>" { INLINE_FUNC_START }
   // Groupings
   | '(' { LPAREN }
@@ -117,17 +117,17 @@ rule read = parse
   | '{' { LBRACKET }
   | '}' { RBRACKET }
   // Keywords (includes types such as nil and bool)
-  | keyword { getKeyword (lexeme lexbuf) }
+  | keyword { getKeyword (getLexeme lexbuf) }
   // Identifiers
-  | ident { IDENT (lexeme lexbuf) }
-  | special_ident { SPECIAL_IDENT (lexeme lexbuf) }
+  | ident { IDENT (getLexeme lexbuf) }
+  | special_ident { SPECIAL_IDENT (getLexeme lexbuf) }
   // Types
-  | int { INT (bigint.Parse (lexeme lexbuf)) }
-  | float { FLOAT (float (lexeme lexbuf)) }
+  | int { INT (bigint.Parse (getLexeme lexbuf)) }
+  | float { FLOAT (float (getLexeme lexbuf)) }
   | '\'' single_quoted_str_char* '\'' { STR (processStr lexbuf) }
   | '\'' single_quoted_str_char* { raiseErr "Unterminated single-quoted string literal" }
   | '"' double_quoted_str_char* '"' { STR (processStr lexbuf) }
   | '"' double_quoted_str_char* { raiseErr "Unterminated double-quoted string literal" }
   // Operators
-  | operator { operators.[lexeme lexbuf] }
-  | _ { raiseErr $"Unexpected character in input stream: {lexeme lexbuf}" }
+  | operator { getOperator lexbuf }
+  | _ { raiseErr $"Unexpected character in input stream: {getLexeme lexbuf}" }

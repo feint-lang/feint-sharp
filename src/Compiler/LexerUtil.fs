@@ -8,26 +8,20 @@ exception LexerErr of string
 
 let raiseErr msg = raise (LexerErr msg)
 
-let lexeme (lexbuf: LexBuffer<char>) = LexBuffer<char>.LexemeString lexbuf
+let getLexeme (lexbuf: LexBuffer<char>) = LexBuffer<char>.LexemeString lexbuf
 
 // Increment line number
-let newLine (lexbuf: LexBuffer<_>) =
+let addNewLine (lexbuf: LexBuffer<_>) =
     lexbuf.StartPos <- lexbuf.EndPos.NextLine
     lexbuf.EndPos <- lexbuf.StartPos
 
 // Increment line number N times
-let rec newLines lexbuf count =
-    match count with
-    | 0 -> ()
-    | _ ->
-        newLine lexbuf
-        newLines lexbuf (count - 1)
+let newLines lexbuf count =
+    for _ = 1 to count do
+        addNewLine lexbuf
 
 // Count newlines in string
 let countNewlines str = (String.filter ((=) '\n') str).Length
-
-let newLinesFromLexeme lexbuf =
-    countNewlines (lexeme lexbuf) |> newLines lexbuf
 
 // Get current line number as string
 // NOTE: Positions are 0-based
@@ -103,12 +97,19 @@ let operators =
           (".", DOT)
           (",", COMMA) ]
 
+let getOperator lexbuf =
+    let op = getLexeme lexbuf
+
+    match operators.TryGetValue op with
+    | true, token -> token
+    | _ -> raiseErr $"Unknown operator: {op}"
+
 let processStr lexbuf =
-    let lex = lexeme lexbuf
-    newLines lexbuf (countNewlines lex)
+    let lexeme = getLexeme lexbuf
+    countNewlines lexeme |> newLines lexbuf
 
     // NOTE: Remove trailing quote from lexeme
-    let str = lex.Substring(0, lex.Length - 1)
+    let str = lexeme.Substring(0, lexeme.Length - 1)
     let peekStr = (str.Substring 1) + "\\"
 
     let buf = new System.Text.StringBuilder()
