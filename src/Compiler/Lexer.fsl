@@ -26,11 +26,9 @@ let int_10 = '0' | ['1' - '9'] ('_'? dec+)*
 let int_02 = "0b" bin+
 let int_08 = "0o" oct+
 let int_16 = "0x" hex+
-let int = ['+' '-']? int_10 | int_02 | int_08 | int_16
+let int = ['+' '-']? (int_10 | int_02 | int_08 | int_16)
 
-let float =
-  dec+ '.' dec+
-  | dec+ ('.' dec+) ['e' 'E'] ['+' '-']? dec+
+let float = ['+' '-']? (dec+ '.' dec+ | dec+ ('.' dec+) ['e' 'E'] ['+' '-']? dec+)
 
 let escaped_char = '\\' _
 let single_quoted_str_char = escaped_char | [^ '\'' '\\']
@@ -77,10 +75,9 @@ let operator =
 
 rule read = parse
   // Whitespace
-  | ws+ [^ '\n'] { dprintn "skip ws"; read lexbuf }
+  | ws+ { read lexbuf }
   | ws* nl {
       let col = lexbuf.StartPos.Column
-      // dprint $"ws* nl @ {formatPosShort lexbuf} -> "
       newLine lexbuf
       match col with
       | 0 -> read lexbuf
@@ -94,19 +91,18 @@ rule read = parse
       // When EOF is found at the end of a line containing other tokens,
       // NL is emitted so that the parser can be simplified by not
       // having to handle EOF specially.
-      // dprint $"ws* eof @ {formatPosShort lexbuf} -> "
       match lexbuf.StartPos.Column with
       | 0 -> EOF
-      | _ -> dprintn "emit EOF NL"; NL
+      | _ -> NL
     }
   // Comments
   | ('#' ([^ '\n']*) ('\n' | eof)) {
       newLine lexbuf;
-      COMMENT (lexeme lexbuf)
+      COMMENT ((lexeme lexbuf).TrimEnd())
     }
   | ("//" ([^ '\n']*) ('\n' | eof)) {
       newLine lexbuf;
-      DOC_COMMENT (lexeme lexbuf)
+      DOC_COMMENT ((lexeme lexbuf).TrimEnd())
     }
   // Scopes
   | "->" ws* nl { newLine lexbuf; SCOPE_START }

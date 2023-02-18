@@ -1,6 +1,8 @@
 module Feint.Compiler.Driver
 
+open System
 open System.IO
+
 open FSharp.Text.Lexing
 
 open Feint.Compiler
@@ -31,10 +33,10 @@ let lexbufForFile fileName =
 
 let printTokens lexbuf =
     let rec read () =
-        match Lexer.read lexbuf with
-        | Parser.EOF -> eprintfn "EOF @ %s" (formatPosShort lexbuf)
-        | token ->
-            eprintfn "%A @ %s" token (formatPosShort lexbuf)
+        let token = Lexer.read lexbuf
+        eprintfn "%A @ %s" token (formatPosShort lexbuf)
+
+        if not lexbuf.IsPastEndOfStream then
             read ()
 
     read ()
@@ -46,22 +48,39 @@ let printTokensFromFile fileName = printTokens (lexbufForFile fileName)
 
 // Parsing -------------------------------------------------------------
 
+type ParseResult =
+    | Statements of Ast.Statement list
+    | Error of string
+
 let tryParse lexbuf fileName =
     try
-        Ok(Parser.Module Lexer.read lexbuf)
+        let statements = Parser.Module Lexer.read lexbuf
+        Statements(statements)
     with
     | LexerUtil.LexerErr msg ->
         let pos = formatPos lexbuf
-        Error($"Syntax error in {fileName} on {pos}: {msg}")
+        Error $"Syntax error in {fileName} on {pos}: {msg}"
     | exc ->
         let pos = formatPos lexbuf
-        Error($"Parse error in {fileName} on {pos}:\n\n{exc}")
+        Error $"Parse error in {fileName} on {pos}:\n\n{exc}"
 
-let parseText (text: string) =
-    let fileName = "<text>"
+let parseText text fileName =
     let lexbuf = lexbufForText text fileName
     tryParse lexbuf fileName
 
 let parseFile fileName =
     let lexbuf = lexbufForFile fileName
     tryParse lexbuf fileName
+
+// AST -----------------------------------------------------------------
+
+let handleParseResultForPrintAst =
+    function
+    | Statements statements -> Console.Write(Ast.formatStatements statements 0)
+    | Error msg -> Console.Error.WriteLine msg
+
+let printAstFromText text fileName =
+    parseText text fileName |> handleParseResultForPrintAst
+
+let printAstFromFile fileName =
+    parseFile fileName |> handleParseResultForPrintAst

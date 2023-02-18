@@ -5,20 +5,20 @@ open System
 open Feint.Compiler.Driver
 open Feint.Interpreter.Interpreter
 
+type Result =
+    | ReadLineErr of Exception
+    | Exit
+
 type Repl() =
     let interpreter = Interpreter(true)
     let mutable history_path: string option = None
 
-    let rec read_line () =
+    let rec readLine () =
         Console.Write("#> ")
+        let line = Console.ReadLine()
+        if line.Length > 0 then line else readLine ()
 
-        try
-            let line = Console.ReadLine()
-            if line.Length > 0 then Some(line) else read_line ()
-        with :? NullReferenceException ->
-            None
-
-    let handle_command =
+    let handleCommand =
         function
         | ".help"
         | "?" ->
@@ -30,41 +30,42 @@ type Repl() =
 
             None
         | ".exit"
-        | ".quit" -> Some 0
+        | ".quit" -> Some Exit
         | ".stack" ->
-            interpreter.display_stack ()
+            interpreter.displayStack ()
             None
         | command ->
             Console.Error.WriteLine $"Unknown REPL command: {command}"
             None
 
-    let interpret_line (line: string) : option<int> =
-        match parseText line with
-        | Ok statements ->
+    let interpretLine line : Result option =
+        match parseText line "<repl>" with
+        | ParseResult.Statements statements ->
             try
                 interpreter.interpret statements
-            with InterpreterErr msg ->
+            with InterpreterExc msg ->
                 Console.Error.WriteLine msg
-        | Error msg -> Console.Error.WriteLine msg
+        | ParseResult.Error err -> Console.Error.WriteLine err
 
         None
 
-    let handle_line (line: string) =
+    // Returns a `Result` to indicate that the REPL should shut down.
+    let handleLine (line: string) =
         match line.StartsWith "." || line = "?" with
-        | true -> handle_command line
-        | false -> interpret_line line
+        | true -> handleCommand line
+        | false -> interpretLine line
 
     let rec loop () =
-        match read_line () with
-        | Some line ->
-            match handle_line line with
-            | Some code -> code
-            | None -> loop ()
-        | None ->
-            Console.Error.WriteLine()
-            0
+        try
+            let line = readLine ()
 
-    member this.start() =
+            match handleLine line with
+            | Some result -> result
+            | None -> loop ()
+        with exc ->
+            ReadLineErr exc
+
+    member _.start() =
         [ "Welcome to the Feint REPL"
           "Type a line of code, then hit Enter to evaluate it"
           "Enter .exit or .quit to exit" ]
@@ -78,5 +79,5 @@ type Repl() =
         loop ()
 
 let startRepl () =
-    // TODO
-    ()
+    let repl = Repl()
+    repl.start ()

@@ -1,17 +1,32 @@
 ﻿open PowerArgs
 
+open Feint
 open Feint.Compiler
-open Feint.Compiler.Driver
-open Feint.Interpreter.Interpreter
-open Feint.Interpreter.Repl
+open Feint.Interpreter
 
-// XXX: This is used as a hacky way to return an exit code from Main()
-//      since PowerArgs doesn't seem to support exit codes when using
-//      InvokeMain.
-exception Exit of int
+type Operation =
+    | RunCode
+    | RunFile
+    | PrintCodeTokens
+    | PrintFileTokens
+    | PrintCodeAst
+    | PrintFileAst
+    | RunRepl
+
+type Result =
+    | Success
+    | ParseErr of string
+    | InterpretErr of string
+    | ReplErr of string
+
+// XXX: This is used as a hacky way to "return" a result from Main()
+//      since it's required to return void/unit.
+exception Exit of Result
 
 [<ArgExceptionBehavior(ArgExceptionPolicy.StandardExceptionHandling)>]
 type Argv() =
+    // Args ------------------------------------------------------------
+
     [<HelpHook>]
     [<ArgDescription("Show this help")>]
     [<ArgShortcut("-h")>]
@@ -38,52 +53,67 @@ type Argv() =
     [<ArgShortcut("--ast")>]
     member val ast = false with get, set
 
-    member this.interpret maybeStatements =
-        match maybeStatements with
-        | Ok statements ->
-            match this.ast with
-            | true ->
-                Ast.printStatements statements
-                0
-            | false ->
-                let intepreter = Interpreter false
+    // Operations ------------------------------------------------------
 
-                try
-                    intepreter.interpret statements
-                    0
-                with InterpreterErr msg ->
-                    eprintfn "Error: %s" msg
-                    1
-        | Error msg ->
-            // Lex or parse error
-            eprintfn "%s" msg
-            2
+    member this.selectOperation() =
+        if not (isNull this.code) then
+            if this.tokens then PrintCodeTokens
+            elif this.ast then PrintCodeAst
+            else RunCode
+        elif not (isNull this.fileName) then
+            if this.tokens then PrintFileTokens
+            elif this.ast then PrintFileAst
+            else RunFile
+        else
+            RunRepl
+
+    member this.runCode() =
+        Interpreter.interpretText this.code "<code>" |> this.handleRunResult
+
+    member this.runFile() =
+        Interpreter.interpretFile this.fileName |> this.handleRunResult
+
+    member _.handleRunResult result =
+        match result with
+        | Interpreter.Success -> Success
+        | Interpreter.ParseErr err -> ParseErr err
+        | Interpreter.InterpretErr err -> InterpretErr err
+
+    member this.printCodeTokens() =
+        Driver.printTokensFromText this.code "<code>"
+        Success
+
+    member this.printFileTokens() =
+        Driver.printTokensFromFile this.fileName
+        Success
+
+    member this.printCodeAst() =
+        Driver.printAstFromText this.code "<code>"
+        Success
+
+    member this.printFileAst() =
+        Driver.printAstFromFile this.fileName
+        Success
+
+    member _.runRepl() =
+        match Repl.startRepl () with
+        | Repl.Exit -> Success
+        | Repl.ReadLineErr exc -> ReplErr $"{exc}"
+
+    // Main ------------------------------------------------------------
 
     member this.Main() : unit =
-        let exitCode =
-            match this.code with
-            | null ->
-                match this.fileName with
-                // Launch REPL
-                | null ->
-                    let repl = Repl()
-                    repl.start ()
-                // Run file
-                | _ ->
-                    match this.tokens with
-                    | true ->
-                        printTokensFromFile this.fileName
-                        0
-                    | false -> this.interpret (parseFile this.fileName)
-            // Run code
-            | _ ->
-                match this.tokens with
-                | true ->
-                    printTokensFromText this.code "<code>"
-                    0
-                | false -> this.interpret (parseText this.code)
+        let result =
+            match this.selectOperation () with
+            | RunCode -> this.runCode ()
+            | RunFile -> this.runFile ()
+            | PrintCodeTokens -> this.printCodeTokens ()
+            | PrintFileTokens -> this.printFileTokens ()
+            | PrintCodeAst -> this.printCodeAst ()
+            | PrintFileAst -> this.printFileAst ()
+            | RunRepl -> this.runRepl ()
 
-        raise (Exit exitCode)
+        raise (Exit result)
 
 [<EntryPoint>]
 let main argv =
@@ -99,16 +129,20 @@ let main argv =
         let result = PowerArgs.Args.InvokeMain<Argv>(argv)
 
         match result.Cancelled with
-        | true ->
-            // This will happen on --help
-            0
-        | _ ->
+        | true -> 0 // --help
+        | false ->
             match result.HandledException with
-            | null ->
-                // XXX: Unreachable?
-                254
-            | _ ->
-                // This will happen when bad args are passed
-                255
-    with Exit exitCode ->
-        exitCode
+            | null -> 254 // unreachable?
+            | _ -> 255 // bad args
+    with Exit result ->
+        match result with
+        | Success -> 0
+        | ParseErr msg ->
+            eprintfn "%s" msg
+            1
+        | InterpretErr msg ->
+            eprintfn "%s" msg
+            2
+        | ReplErr msg ->
+            eprintfn "%s" msg
+            3

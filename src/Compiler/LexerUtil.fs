@@ -68,7 +68,7 @@ let operators =
         [
           // Unary
           ("!", BANG)
-          ("!", BANG_BANG)
+          ("!!", BANG_BANG)
           // Binary
           ("^", CARET)
           ("*", STAR)

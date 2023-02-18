@@ -3,14 +3,17 @@ module Feint.Interpreter.Interpreter
 open System
 open System.Collections.Generic
 
-//open FSharp.Text.Lexing
-
+open Feint.Compiler
 open Feint.Compiler.Ast
-open Feint.Compiler.Driver
 
-exception InterpreterErr of string
+exception InterpreterExc of string
 
-let raiseErr msg = raise (InterpreterErr msg)
+let raiseErr msg = raise (InterpreterExc msg)
+
+type Result =
+    | Success
+    | ParseErr of string
+    | InterpretErr of string
 
 type StackVal =
     | NilVal
@@ -32,9 +35,7 @@ let debugVal =
     | StrVal v -> $"\"{v}\""
     | v -> displayVal v
 
-// Interpreter ---------------------------------------------------------
-
-type Interpreter(show_statement_result) =
+type Interpreter(showStatementResult) =
     let stack: Stack<StackVal> = Stack()
     let names: Dictionary<string, StackVal> = Dictionary()
 
@@ -50,11 +51,7 @@ type Interpreter(show_statement_result) =
     let peek () = stack.Peek()
     let pop () = stack.Pop()
 
-    let popDiscard () =
-        let _ = pop ()
-        ()
-
-    member this.display_stack() =
+    member _.displayStack() =
         match stack.Count with
         | 0 -> Console.Error.WriteLine "[EMPTY]"
         | _ ->
@@ -62,22 +59,22 @@ type Interpreter(show_statement_result) =
                 Console.Error.WriteLine $"{debugVal v}"
 
     member this.interpret statements =
-        List.iter (fun statement -> this.interpret_statement statement) statements
+        List.iter (fun statement -> this.interpretStatement statement) statements
 
-    member this.interpret_statement statement =
+    member this.interpretStatement statement =
         match statement with
         | Comment _ -> ()
         | DocComment _ -> ()
         | Return _ -> ()
         | Newline -> ()
         | ExprStatement e ->
-            this.interpret_expr e
+            this.interpretExpr e
             let top = pop ()
 
-            if show_statement_result && top <> NilVal then
+            if showStatementResult && top <> NilVal then
                 Console.Error.WriteLine $"-> {debugVal top}"
 
-    member this.interpret_expr expr =
+    member this.interpretExpr expr =
         match expr with
         | Nil _ -> pushNil ()
         | Bool v -> pushBool v
@@ -89,73 +86,73 @@ type Interpreter(show_statement_result) =
             | true, v -> push (v)
             | _ -> raiseErr $"Name not found: {name}"
         | Assignment a ->
-            this.interpret_expr a.value
+            this.interpretExpr a.value
             names.Add(a.name, peek ())
         | Reassignment a ->
             match (names.ContainsKey a.name) with
             | true ->
-                this.interpret_expr a.value
+                this.interpretExpr a.value
                 names.Add(a.name, peek ())
             | false -> raiseErr $"Cannot reassign {a.name} because it's not already assigned"
-        | BinaryOp op -> this.interpret_binary_op op.lhs op.op op.rhs
-        | ShortCircuitOp op -> this.interpret_short_circuit_op op.lhs op.op op.rhs
-        | CompareOp op -> this.interpret_compare_op op.lhs op.op op.rhs
+        | BinaryOp op -> this.interpretBinaryOp op.lhs op.op op.rhs
+        // | ShortCircuitOp op -> this.interpretShortCircuitOp op.lhs op.op op.rhs
+        | CompareOp op -> this.interpretCompareOp op.lhs op.op op.rhs
         | Block statements -> this.interpret statements
         | Print args ->
-            let handle_arg arg =
-                this.interpret_expr arg
+            let handleArg arg =
+                this.interpretExpr arg
                 displayVal (pop ())
 
-            let args = List.map handle_arg args
+            let args = List.map handleArg args
             let args = String.concat " " args
             printfn $"{args}"
             pushNil ()
         | expr ->
-            let msg = formatExpr expr
-            raiseErr $"Unhandled expression: {msg}"
+            let msg = formatExpr expr 0
+            raiseErr $"Expression not handled by interpreter: {msg}"
 
     // Binary Operations -----------------------------------------------
 
-    member this.interpret_binary_op lhs op rhs =
-        this.interpret_expr lhs
-        this.interpret_expr rhs
+    member this.interpretBinaryOp lhs op rhs =
+        this.interpretExpr lhs
+        this.interpretExpr rhs
 
         let rhs = pop ()
         let lhs = pop ()
 
         match op with
-        | Pow -> this.interpret_pow lhs rhs
-        | Mul -> this.interpret_mul lhs rhs
-        | Div -> this.interpret_div lhs rhs
-        | Add -> this.interpret_add lhs rhs
-        | Sub -> this.interpret_sub lhs rhs
+        | Pow -> this.interpretPow lhs rhs
+        | Mul -> this.interpretMul lhs rhs
+        | Div -> this.interpretDiv lhs rhs
+        | Add -> this.interpretAdd lhs rhs
+        | Sub -> this.interpretSub lhs rhs
         | op -> raiseErr $"Unhandled binary op: {formatBinaryOp op}"
 
-    member this.interpret_pow lhs rhs =
+    member _.interpretPow lhs rhs =
         match (lhs, rhs) with
         | IntVal a, IntVal b when b >= bigint Int32.MinValue && b <= bigint Int32.MaxValue -> pushInt (a ** (int) b)
         | FloatVal a, FloatVal b -> pushFloat (a ** b)
         | _ -> raiseErr $"Cannot raise {debugVal lhs} to {debugVal rhs}"
 
-    member this.interpret_mul lhs rhs =
+    member _.interpretMul lhs rhs =
         match (lhs, rhs) with
         | IntVal a, IntVal b -> pushInt (a * b)
         | FloatVal a, FloatVal b -> pushFloat (a * b)
         | _ -> raiseErr $"Cannot multiply {debugVal lhs} by {debugVal rhs}"
 
-    member this.interpret_div lhs rhs =
+    member _.interpretDiv lhs rhs =
         match (lhs, rhs) with
         | IntVal a, IntVal b -> pushInt (a / b)
         | FloatVal a, FloatVal b -> pushFloat (a / b)
         | _ -> raiseErr $"Cannot divide {debugVal lhs} by {debugVal rhs}"
 
-    member this.interpret_add lhs rhs =
+    member _.interpretAdd lhs rhs =
         match (lhs, rhs) with
         | IntVal a, IntVal b -> pushInt (a + b)
         | FloatVal a, FloatVal b -> pushFloat (a + b)
         | _ -> raiseErr $"Cannot add {debugVal rhs} to {debugVal lhs}"
 
-    member this.interpret_sub lhs rhs =
+    member _.interpretSub lhs rhs =
         match (lhs, rhs) with
         | IntVal a, IntVal b -> pushInt (a - b)
         | FloatVal a, FloatVal b -> pushFloat (a - b)
@@ -163,19 +160,19 @@ type Interpreter(show_statement_result) =
 
     // Short Circuiting Binary Operations ------------------------------
 
-    member this.interpret_short_circuit_op lhs op rhs =
-        this.interpret_expr lhs
+    member this.interpretShortCircuitOp lhs op rhs =
+        this.interpretExpr lhs
         let lhs = pop ()
 
         match op with
-        | And -> this.interpret_and lhs rhs
-        | Or -> this.interpret_or lhs rhs
-        | NilOr -> this.interpret_nil_or lhs rhs
+        | And -> this.interpretAnd lhs rhs
+        | Or -> this.interpretOr lhs rhs
+        | NilOr -> this.interpretNilOr lhs rhs
 
-    member this.interpret_and lhs rhs =
+    member this.interpretAnd lhs rhs =
         match lhs with
         | BoolVal true ->
-            this.interpret_expr rhs
+            this.interpretExpr rhs
             let rhs = pop ()
 
             match rhs with
@@ -185,11 +182,11 @@ type Interpreter(show_statement_result) =
         | BoolVal false -> pushFalse ()
         | _ -> raiseErr $"Cannot apply && to {debugVal lhs}"
 
-    member this.interpret_or lhs rhs =
+    member this.interpretOr lhs rhs =
         match lhs with
         | BoolVal true -> pushTrue ()
         | BoolVal false ->
-            this.interpret_expr rhs
+            this.interpretExpr rhs
             let rhs = pop ()
 
             match rhs with
@@ -198,27 +195,27 @@ type Interpreter(show_statement_result) =
             | _ -> raiseErr $"Cannot apply {debugVal lhs} || {debugVal rhs}"
         | _ -> raiseErr $"Cannot apply || to {debugVal lhs}"
 
-    member this.interpret_nil_or lhs rhs =
+    member this.interpretNilOr lhs rhs =
         match lhs with
-        | NilVal -> this.interpret_expr rhs
+        | NilVal -> this.interpretExpr rhs
         | _ -> push lhs
 
     // Comparison Operations -------------------------------------------
 
-    member this.interpret_compare_op lhs op rhs =
-        this.interpret_expr lhs
-        this.interpret_expr rhs
+    member this.interpretCompareOp lhs op rhs =
+        this.interpretExpr lhs
+        this.interpretExpr rhs
         let rhs = pop ()
         let lhs = pop ()
 
         let result =
             match op with
-            | EqEq -> this.interpret_eq lhs rhs
+            | EqEq -> this.interpretEq lhs rhs
             | op -> raiseErr $"Unhandled comparison op: {formatCompareOp op}"
 
         pushBool result
 
-    member this.interpret_eq lhs rhs =
+    member _.interpretEq lhs rhs =
         match (lhs, rhs) with
         | NilVal, NilVal -> true
         | BoolVal a, BoolVal b -> a = b
@@ -227,14 +224,23 @@ type Interpreter(show_statement_result) =
         | StrVal a, StrVal b -> a = b
         | _ -> false
 
-let interpret maybeStatements =
-    // TODO
-    ()
+// Interpreter Entrypoints ---------------------------------------------
+
+let interpret statements =
+    let intepreter = Interpreter false
+
+    try
+        intepreter.interpret statements
+        Success
+    with InterpreterExc msg ->
+        InterpretErr msg
 
 let interpretText text fileName =
-    // TODO
-    ()
+    match Driver.parseText text fileName with
+    | Driver.Statements statements -> interpret statements
+    | Driver.Error err -> ParseErr err
 
 let interpretFile fileName =
-    // TODO
-    ()
+    match Driver.parseFile fileName with
+    | Driver.Statements statements -> interpret statements
+    | Driver.Error err -> ParseErr err

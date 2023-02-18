@@ -59,15 +59,15 @@ and Expr =
     // Identifiers
     | Ident of string
     | SpecialIdent of string
+    // Assignment
+    | Assignment of Assignment
+    | Reassignment of Reassignment
     // Operations
     | UnaryOp of UnaryOp
     | BinaryOp of BinaryOp
     | ShortCircuitOp of ShortCircuitOp
     | CompareOp of CompareOp
     | InPlaceOp of InPlaceOp
-    // Assignment
-    | Assignment of Assignment
-    | Reassignment of Reassignment
     // Block
     | Block of Statement list
     // Print
@@ -158,8 +158,6 @@ and formatStatement statement level =
     $"{indent}{result.TrimEnd()}\n"
 
 and formatExpr expr level =
-    let indent = makeIndent level
-
     match expr with
     // Types
     | Nil -> "nil"
@@ -167,28 +165,46 @@ and formatExpr expr level =
     | Int v -> v.ToString()
     | Float v -> v.ToString()
     | Str v -> v
-    // Operations
-    | UnaryOp op -> $"{formatUnaryOp op.op}{formatExpr op.rhs level}"
-    | BinaryOp op -> $"{formatBinOpExpr op.lhs (formatBinaryOp op.op) op.rhs}"
-    | ShortCircuitOp op -> $"{formatBinOpExpr op.lhs (formatShortCircuitOp op.op) op.rhs}"
-    | CompareOp op -> $"{formatBinOpExpr op.lhs (formatCompareOp op.op) op.rhs}"
-    | InPlaceOp op -> $"{formatBinOpExpr op.lhs (formatInPlaceOp op.op) op.rhs}"
-    // Assignments
+    // Identifiers
     | Ident name -> name
     | SpecialIdent name -> name
-    // Blocks
-    | Block statements ->
-        let statements = formatStatements statements (level + 1)
-        $"\n{indent}block ->\n{statements}"
-    // Print
-    | Print args ->
-        let formatter = fun expr -> formatExpr expr 0
-        let args = String.concat ", " (List.map formatter args)
-        $"$print {args}"
-    | _ -> "unknown expr"
+    // Assigments
+    | Assignment a -> $"{a.name} = {a.value}"
+    | Reassignment a -> $"{a.name} <- {a.value}"
+    // Operations
+    | UnaryOp op -> $"{formatUnaryOpExpr op}"
+    | BinaryOp op -> $"{formatBinOpExpr op}"
+    | ShortCircuitOp op -> $"{formatShortCircuitOpExpr op}"
+    | CompareOp op -> $"{formatCompareOpExpr op}"
+    | InPlaceOp op -> $"{formatInPlaceOpExpr op}"
+    // Other
+    | Block statements -> formatBlockExpr statements level
+    | Print args -> formatPrintExpr args
 
-and formatBinOpExpr lhs op rhs level =
-    $"{formatExpr lhs level} {op} {formatExpr rhs level}"
+and formatUnaryOpExpr op =
+    $"{formatUnaryOp op.op} {formatExpr op.rhs 0}"
+
+and formatBinOpExpr op =
+    $"{formatExpr op.lhs 0} {formatBinaryOp op.op} {formatExpr op.rhs 0}"
+
+and formatShortCircuitOpExpr op =
+    $"{formatExpr op.lhs 0} {formatShortCircuitOp op.op} {formatExpr op.rhs 0}"
+
+and formatCompareOpExpr op =
+    $"{formatExpr op.lhs 0} {formatCompareOp op.op} {formatExpr op.rhs 0}"
+
+and formatInPlaceOpExpr op =
+    $"{formatExpr op.lhs 0} {formatInPlaceOp op.op} {formatExpr op.rhs 0}"
+
+and formatBlockExpr statements level =
+    let indent = makeIndent level
+    let statements = formatStatements statements (level + 1)
+    $"\n{indent}block ->\n{statements}"
+
+and formatPrintExpr args =
+    let formatter = fun expr -> formatExpr expr 0
+    let args = String.concat ", " (List.map formatter args)
+    $"$print {args}"
 
 let printStatements statements =
     let statements = (formatStatements statements 0)
