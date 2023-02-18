@@ -7,7 +7,6 @@ open Feint.Compiler.Parser
 exception LexerErr of string
 
 let raiseErr msg = raise (LexerErr msg)
-let currPos (lexbuf: LexBuffer<char>) = lexbuf.StartPos
 
 let lexeme (lexbuf: LexBuffer<char>) = LexBuffer<char>.LexemeString lexbuf
 
@@ -28,7 +27,7 @@ let rec newLines lexbuf count =
 let countNewlines str = (String.filter ((=) '\n') str).Length
 
 let newLinesFromLexeme lexbuf =
-    newLines lexbuf (countNewlines (lexeme lexbuf))
+    countNewlines (lexeme lexbuf) |> newLines lexbuf
 
 // Get current line number as string
 // NOTE: Positions are 0-based

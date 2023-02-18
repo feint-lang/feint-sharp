@@ -10,7 +10,7 @@ open Feint.Compiler.LexerUtil
 
 // LexBuffer Creation --------------------------------------------------
 
-let initLexbuf (lexbuf: LexBuffer<char>) fileName =
+let initLexbuf fileName (lexbuf: LexBuffer<char>) =
     lexbuf.EndPos <-
         { pos_bol = 0
           pos_fname = fileName
@@ -21,13 +21,10 @@ let initLexbuf (lexbuf: LexBuffer<char>) fileName =
     lexbuf
 
 let lexbufForText text fileName =
-    let lexbuf = LexBuffer<char>.FromString text
-    initLexbuf lexbuf fileName
+    LexBuffer<char>.FromString text |> initLexbuf fileName
 
 let lexbufForFile fileName =
-    let stream = File.OpenText(fileName)
-    let lexbuf = LexBuffer<char>.FromTextReader(stream)
-    initLexbuf lexbuf fileName
+    File.OpenText(fileName) |> LexBuffer<char>.FromTextReader |> initLexbuf fileName
 
 // Tokenizing ----------------------------------------------------------
 
@@ -52,7 +49,7 @@ type ParseResult =
     | Statements of Ast.Statement list
     | Error of string
 
-let tryParse lexbuf fileName =
+let tryParse fileName lexbuf =
     try
         let statements = Parser.Module Lexer.read lexbuf
         Statements(statements)
@@ -65,12 +62,10 @@ let tryParse lexbuf fileName =
         Error $"Parse error in {fileName} on {pos}:\n\n{exc}"
 
 let parseText text fileName =
-    let lexbuf = lexbufForText text fileName
-    tryParse lexbuf fileName
+    lexbufForText text fileName |> tryParse fileName
 
 let parseFile fileName =
-    let lexbuf = lexbufForFile fileName
-    tryParse lexbuf fileName
+    lexbufForFile fileName |> tryParse fileName
 
 // AST -----------------------------------------------------------------
 

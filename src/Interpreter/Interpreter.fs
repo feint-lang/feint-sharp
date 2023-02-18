@@ -235,12 +235,13 @@ let interpret statements =
     with InterpreterExc msg ->
         InterpretErr msg
 
-let interpretText text fileName =
-    match Driver.parseText text fileName with
+let handleParseResultForInterpret =
+    function
     | Driver.Statements statements -> interpret statements
     | Driver.Error err -> ParseErr err
 
+let interpretText text fileName =
+    Driver.parseText text fileName |> handleParseResultForInterpret
+
 let interpretFile fileName =
-    match Driver.parseFile fileName with
-    | Driver.Statements statements -> interpret statements
-    | Driver.Error err -> ParseErr err
+    Driver.parseFile fileName |> handleParseResultForInterpret
