@@ -62,8 +62,11 @@ type Repl() =
             match handleLine line with
             | Some result -> result
             | None -> loop ()
-        with exc ->
-            ReadLineErr exc
+        with
+        | :? NullReferenceException ->
+            printfn ""
+            Exit
+        | exc -> ReadLineErr exc
 
     member _.start() =
         [ "Welcome to the Feint REPL"

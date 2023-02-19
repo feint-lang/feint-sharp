@@ -35,6 +35,11 @@ let debugVal =
     | StrVal v -> $"\"{v}\""
     | v -> displayVal v
 
+let bigintOfInt b =
+    match b >= bigint Int32.MinValue && b <= bigint Int32.MaxValue with
+    | true -> Some((int) b)
+    | false -> None
+
 type Interpreter(showStatementResult) =
     let stack: Stack<StackVal> = Stack()
     let names: Dictionary<string, StackVal> = Dictionary()
@@ -93,7 +98,8 @@ type Interpreter(showStatementResult) =
             | true ->
                 this.interpretExpr a.value
                 names.Add(a.name, peek ())
-            | false -> raiseErr $"Cannot reassign {a.name} because it's not already assigned"
+            | false ->
+                raiseErr $"Cannot reassign {a.name} because it's not already assigned"
         | BinaryOp op -> this.interpretBinaryOp op.lhs op.op op.rhs
         // | ShortCircuitOp op -> this.interpretShortCircuitOp op.lhs op.op op.rhs
         | CompareOp op -> this.interpretCompareOp op.lhs op.op op.rhs
@@ -130,7 +136,7 @@ type Interpreter(showStatementResult) =
 
     member _.interpretPow lhs rhs =
         match (lhs, rhs) with
-        | IntVal a, IntVal b when b >= bigint Int32.MinValue && b <= bigint Int32.MaxValue -> pushInt (a ** (int) b)
+        | IntVal a, IntVal b when (bigintOfInt b).IsSome -> pushInt (a ** (int) b)
         | FloatVal a, FloatVal b -> pushFloat (a ** b)
         | _ -> raiseErr $"Cannot raise {debugVal lhs} to {debugVal rhs}"
 

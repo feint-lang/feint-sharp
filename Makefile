@@ -8,6 +8,10 @@ PHONY := run
 run:
 	@dotnet run
 
+PHONY := test
+test:
+	@dotnet test
+
 PHONY := add-fantomas
 add-fantomas:
 	test -f .config/dotnet-tools.json || dotnet new tool-manifest

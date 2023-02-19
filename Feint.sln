@@ -18,6 +18,10 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 		grammar.txt = grammar.txt
 	EndProjectSection
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{A31A1525-A867-4240-82F9-CDD2ABB078C5}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Compiler.Tests", "src\Compiler.Tests\Compiler.Tests.fsproj", "{7D5FD751-9AEB-4ACE-8398-5F092D742D62}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -36,11 +40,18 @@ Global
 		{B8CB796A-147F-457F-87DF-45A3C19950F4}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B8CB796A-147F-457F-87DF-45A3C19950F4}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B8CB796A-147F-457F-87DF-45A3C19950F4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7D5FD751-9AEB-4ACE-8398-5F092D742D62}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7D5FD751-9AEB-4ACE-8398-5F092D742D62}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7D5FD751-9AEB-4ACE-8398-5F092D742D62}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7D5FD751-9AEB-4ACE-8398-5F092D742D62}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {C8B980A1-69F2-49D8-853F-86DBF56EC32E}
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{7D5FD751-9AEB-4ACE-8398-5F092D742D62} = {A31A1525-A867-4240-82F9-CDD2ABB078C5}
 	EndGlobalSection
 EndGlobal
