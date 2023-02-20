@@ -5,10 +5,10 @@ open Xunit
 open Feint.Compiler
 open Feint.Compiler.Combinators
 
-let assertIsSuccess (actual: Result<'a * string>) (expectedData: 'a) expectedInput =
+let assertIsSuccess (actual: Result<'a * string>) (expectedValue: 'a) expectedInput =
     match actual with
     | Success(actualData, actualInput) ->
-        Assert.Equal<'a>(expectedData, actualData)
+        Assert.Equal<'a>(expectedValue, actualData)
         Assert.Equal(actualInput, expectedInput)
     | _ -> Assert.False(false, "Expected Success")
 
@@ -63,4 +63,19 @@ let ``match sequence of two digits`` () =
     let actual = run (sequence [ digit; digit ]) "12a"
     assertIsSuccess actual [ '1'; '2' ] "a"
 
+[<Fact>]
+let ``match hex digit`` () =
+    let actual = run (hexDigit) "a"
+    assertIsSuccess actual 'a' ""
+
+    let actual = run (hexDigit) "A"
+    assertIsSuccess actual 'A' ""
+
 // Numbers -------------------------------------------------------------
+
+// Keywords ------------------------------------------------------------
+
+[<Fact>]
+let ``match keyword`` () =
+    let actual = run (str "true") "true"
+    assertIsSuccess actual "true" ""
