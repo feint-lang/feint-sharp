@@ -69,6 +69,13 @@ type Lexer(stream: IO.TextReader) =
         let token = Int(bigint.Parse str)
         makeToken startPos token
 
+    let handleStr startPos quote firstChar =
+        // TODO: Handle escape chars
+        let otherChars = nextCharWhile (fun c -> c <> quote)
+        let str = firstChar :: otherChars |> List.toArray |> String
+        let token = Str(str)
+        makeToken startPos token
+
     // API -------------------------------------------------------------
 
     member _.pos = (line, col)
@@ -78,11 +85,26 @@ type Lexer(stream: IO.TextReader) =
 
         match nextChar () with
         | None -> EOF
-        | Some c when System.Char.IsDigit(c) -> handleInt this.pos c
+        // Groupings ---------------------------------------------------
+        | Some '(' -> makeToken this.pos LParen
+        | Some ')' -> makeToken this.pos RParen
+        | Some '[' -> makeToken this.pos LBrace
+        | Some ']' -> makeToken this.pos RBrace
+        | Some '{' -> makeToken this.pos LBracket
+        | Some '}' -> makeToken this.pos RBracket
+        // Binary Operators --------------------------------------------
+        | Some '^' -> makeToken this.pos Caret
         | Some '*' -> makeToken this.pos Star
         | Some '/' -> makeToken this.pos Slash
+        // TODO:
+        // | Some '//' -> makeToken this.pos Slash
         | Some '+' -> makeToken this.pos Plus
         | Some '-' -> makeToken this.pos Dash
+        // Types -------------------------------------------------------
+        | Some c when System.Char.IsDigit(c) -> handleInt this.pos c
+        | Some c when c = '"' -> handleStr this.pos '"' c
+        | Some c when c = '\'' -> handleStr this.pos '\'' c
+        // Errors ------------------------------------------------------
         | Some '\t' -> makeSyntaxErr ("Cannot use TAB for indentation or whitespace")
         | Some c -> makeSyntaxErr ($"Unhandled character: {c}")
 
