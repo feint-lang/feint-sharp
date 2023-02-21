@@ -43,6 +43,17 @@ let ``fail to match single character from string`` () =
     let actual = run (matchChar 'x') "yx"
     assertIsFailure actual (Some "Expected char 'x'; got 'y'")
 
+[<Fact>]
+let ``match ascii`` () =
+    let actual = run asciiLower "xyz"
+    assertIsSuccess actual 'x' "yz"
+
+    let actual = run asciiLetter "xyz"
+    assertIsSuccess actual 'x' "yz"
+
+    let actual = run asciiLetterOrDigit "xyz"
+    assertIsSuccess actual 'x' "yz"
+
 // Digit ---------------------------------------------------------------
 
 [<Fact>]
@@ -79,3 +90,8 @@ let ``match hex digit`` () =
 let ``match keyword`` () =
     let actual = run (str "true") "true"
     assertIsSuccess actual "true" ""
+
+[<Fact>]
+let ``fail to match keyword`` () =
+    let actual = run (str "true") "truex"
+    assertIsFailure actual None

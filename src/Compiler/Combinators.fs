@@ -60,54 +60,57 @@ let (|>>) = map
 
 // ---------------------------------------------------------------------
 
-let anyOf parsers = parsers |> Seq.reduce orElse
-let choice = anyOf
+let choice parsers = parsers |> Seq.reduce orElse
 
 let zeroOrMore x = ()
 let oneOrMore x = ()
 
 let sequence parsers =
     Parser(fun input ->
-        let rec loop results parsers parser input =
-            match run parser input with
-            | Failure f -> Failure f
-            | Success(v, input') ->
-                match parsers with
-                | [] -> Success(results @ [ v ], input')
-                | parser' :: parsers' -> loop (results @ [ v ]) parsers' parser' input'
+        let rec loop results parsers input =
+            match Seq.isEmpty parsers with
+            | true -> Success(results, input)
+            | false ->
+                match run (Seq.head parsers) input with
+                | Failure f -> Failure f
+                | Success(v, input') ->
+                    try
+                        let tail = Seq.tail parsers
+                        loop (results @ [ v ]) (tail) input'
+                    with :? InvalidOperationException ->
+                        Success(results, input')
 
-        match parsers with
-        | [] -> Success([], input)
-        | parser :: parsers' -> loop [] parsers' parser input)
+        loop [] parsers input)
 
 // Characters ----------------------------------------------------------
 
-let anyCharOf chars = chars |> Seq.map matchChar |> anyOf
-let anyCharOfI chars = chars |> Seq.map matchCharI |> anyOf
+let anyOf chars = chars |> Seq.map matchChar |> choice
+let anyOfI chars = chars |> Seq.map matchCharI |> choice
 
-let asciiLower = anyCharOf [ 'a' .. 'z' ]
-let asciiUpper = anyCharOf [ 'A' .. 'Z' ]
-let asciiLetter = anyOf [ asciiLower; asciiUpper ]
+let asciiLower = anyOf [ 'a' .. 'z' ]
+let asciiUpper = anyOf [ 'A' .. 'Z' ]
+let asciiLetter = choice [ asciiLower; asciiUpper ]
 
 // Numbers -------------------------------------------------------------
 
 let zero = matchChar '0'
-let digit = anyCharOf [ '0' .. '9' ]
-let natural = anyCharOf [ '1' .. '9' ]
-let binDigit = anyCharOf [ '0' .. '1' ]
-let octDigit = anyCharOf [ '0' .. '7' ]
-let hexLetter = anyCharOfI [ 'a' .. 'f' ]
-let hexDigit = anyOf [ digit; hexLetter ]
+let digit = anyOf [ '0' .. '9' ]
+let natural = anyOf [ '1' .. '9' ]
+let binDigit = anyOf [ '0' .. '1' ]
+let octDigit = anyOf [ '0' .. '7' ]
+let hexLetter = anyOfI [ 'a' .. 'f' ]
+let hexDigit = choice [ digit; hexLetter ]
 
 // Identifiers ---------------------------------------------------------
 
-let asciiLetterOrDigit = anyOf [ asciiLetter; digit ]
+let asciiLetterOrDigit = choice [ asciiLetter; digit ]
 
 // Keywords ------------------------------------------------------------
 
-let str (str: string) =
-    str |> Seq.map matchChar |> sequence |>> Seq.toArray |>> String
+let keyword (word: string) =
+    word |> Seq.map matchChar |> sequence |>> Seq.toArray |>> String
 
 // Strings -------------------------------------------------------------
 
-let string = sequence [ matchChar '"'; matchChar '"' ]
+let singleQuotedString = sequence [| matchChar '\''; matchChar '\'' |]
+let doubleQuotedString = sequence [| matchChar '"'; matchChar '"' |]
