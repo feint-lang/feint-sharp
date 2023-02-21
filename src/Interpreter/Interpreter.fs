@@ -241,13 +241,13 @@ let interpret statements =
     with InterpreterExc msg ->
         InterpretErr msg
 
-let handleParseResultForInterpret =
-    function
-    | Driver.Statements statements -> interpret statements
-    | Driver.Error err -> ParseErr err
+let handleParseResultForInterpret = InterpretErr "not impelemented"
+// function
+// | Driver.Statements statements -> interpret statements
+// | Driver.Error err -> ParseErr err
 
-let interpretText text fileName =
-    Driver.parseText text fileName |> handleParseResultForInterpret
+let interpretText text fileName = InterpretErr "not impelemented"
+// Driver.parseText text fileName |> handleParseResultForInterpret
 
-let interpretFile fileName =
-    Driver.parseFile fileName |> handleParseResultForInterpret
+let interpretFile fileName = InterpretErr "not impelemented"
+// Driver.parseFile fileName |> handleParseResultForInterpret

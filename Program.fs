@@ -7,10 +7,10 @@ open Feint.Interpreter
 type Operation =
     | RunCode
     | RunFile
-    | PrintCodeTokens
-    | PrintFileTokens
-    | PrintCodeAst
-    | PrintFileAst
+    // | PrintCodeTokens
+    // | PrintFileTokens
+    // | PrintCodeAst
+    // | PrintFileAst
     | RunRepl
 
 type Result =
@@ -57,13 +57,13 @@ type Argv() =
 
     member this.selectOperation() =
         if not (isNull this.code) then
-            if this.tokens then PrintCodeTokens
-            elif this.ast then PrintCodeAst
-            else RunCode
+            // if this.tokens then PrintCodeTokens
+            // elif this.ast then PrintCodeAst
+            RunCode
         elif not (isNull this.fileName) then
-            if this.tokens then PrintFileTokens
-            elif this.ast then PrintFileAst
-            else RunFile
+            // if this.tokens then PrintFileTokens
+            // elif this.ast then PrintFileAst
+            RunFile
         else
             RunRepl
 
@@ -79,21 +79,21 @@ type Argv() =
         | Interpreter.ParseErr err -> ParseErr err
         | Interpreter.InterpretErr err -> InterpretErr err
 
-    member this.printCodeTokens() =
-        Driver.printTokensFromText this.code "<code>"
-        Success
+    // member this.printCodeTokens() =
+    //     Driver.printTokensFromText this.code "<code>"
+    //     Success
 
-    member this.printFileTokens() =
-        Driver.printTokensFromFile this.fileName
-        Success
+    // member this.printFileTokens() =
+    //     Driver.printTokensFromFile this.fileName
+    //     Success
 
-    member this.printCodeAst() =
-        Driver.printAstFromText this.code "<code>"
-        Success
+    // member this.printCodeAst() =
+    //     Driver.printAstFromText this.code "<code>"
+    //     Success
 
-    member this.printFileAst() =
-        Driver.printAstFromFile this.fileName
-        Success
+    // member this.printFileAst() =
+    //     Driver.printAstFromFile this.fileName
+    //     Success
 
     member _.runRepl() =
         match Repl.startRepl () with
@@ -107,10 +107,10 @@ type Argv() =
             match this.selectOperation () with
             | RunCode -> this.runCode ()
             | RunFile -> this.runFile ()
-            | PrintCodeTokens -> this.printCodeTokens ()
-            | PrintFileTokens -> this.printFileTokens ()
-            | PrintCodeAst -> this.printCodeAst ()
-            | PrintFileAst -> this.printFileAst ()
+            // | PrintCodeTokens -> this.printCodeTokens ()
+            // | PrintFileTokens -> this.printFileTokens ()
+            // | PrintCodeAst -> this.printCodeAst ()
+            // | PrintFileAst -> this.printFileAst ()
             | RunRepl -> this.runRepl ()
 
         raise (Exit result)

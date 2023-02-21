@@ -25,7 +25,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Include="Combinators.Tests.fs" />
+    <Compile Include="Lexer.Tests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 </Project>

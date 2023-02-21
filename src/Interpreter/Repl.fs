@@ -38,16 +38,16 @@ type Repl() =
             Console.Error.WriteLine $"Unknown REPL command: {command}"
             None
 
-    let interpretLine line : Result option =
-        match parseText line "<repl>" with
-        | ParseResult.Statements statements ->
-            try
-                interpreter.interpret statements
-            with InterpreterExc msg ->
-                Console.Error.WriteLine msg
-        | ParseResult.Error err -> Console.Error.WriteLine err
+    let interpretLine line : Result option = Some Exit
+    // match parseText line "<repl>" with
+    // | ParseResult.Statements statements ->
+    //     try
+    //         interpreter.interpret statements
+    //     with InterpreterExc msg ->
+    //         Console.Error.WriteLine msg
+    // | ParseResult.Error err -> Console.Error.WriteLine err
 
-        None
+    // None
 
     // Returns a `Result` to indicate that the REPL should shut down.
     let handleLine (line: string) =

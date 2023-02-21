@@ -5,24 +5,11 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="FsLexYacc" Version="11.0.1">
-      <GeneratePathProperty />
-    </PackageReference>
-    <FsYacc Include="Parser.fsy">
-      <OtherFlags>--module Feint.Compiler.Parser</OtherFlags>
-    </FsYacc>
-    <FsLex Include="Lexer.fsl">
-      <OtherFlags>--module Feint.Compiler.Lexer --unicode</OtherFlags>
-    </FsLex>
-  </ItemGroup>
-  <ItemGroup>
     <Compile Include="Util.fs" />
-    <Compile Include="Combinators.fs" />
-    <Compile Include="Ast.fs" />
-    <Compile Include="Parser.fsi" />
-    <Compile Include="Parser.fs" />
-    <Compile Include="LexerUtil.fs" />
+    <Compile Include="Token.fs" />
     <Compile Include="Lexer.fs" />
+    <Compile Include="Ast.fs" />
+    <Compile Include="Parser.fs" />
     <Compile Include="Driver.fs" />
   </ItemGroup>
 </Project>
