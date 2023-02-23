@@ -2,19 +2,13 @@ module Feint.Compiler.Lexer
 
 open System
 
+open Errors
 open Token
-
-type Pos = uint * uint
-
-type SyntaxErrKind =
-    | Tab
-    | UnhandledChar of char
-    | UnterminatedStringLiteral of string
 
 type Result =
     | Token of PosToken
     | EOF
-    | SyntaxErr of fileName: string * startPos: Pos * endPos: Pos * kind: SyntaxErrKind
+    | SyntaxErr of SyntaxErr
 
 type Lexer(fileName: string, stream: IO.TextReader) =
     let stream = stream
@@ -49,8 +43,6 @@ type Lexer(fileName: string, stream: IO.TextReader) =
             | false -> None
         | None -> None
 
-    let skipNextChar () = nextChar () |> ignore
-
     let rec nextCharWhile predicate =
         match peekChar () with
         | None -> []
@@ -76,15 +68,25 @@ type Lexer(fileName: string, stream: IO.TextReader) =
 
     // Error Handlers --------------------------------------------------
 
-    let makeSyntaxErr message =
+    let makeSyntaxErr kind =
         endPos <- (line, col)
-        SyntaxErr(fileName, startPos, endPos, message)
+
+        SyntaxErr
+            { fileName = fileName
+              startPos = startPos
+              endPos = endPos
+              kind = kind }
 
     // Handlers --------------------------------------------------------
 
     let makeToken token =
         endPos <- (line, col)
-        Token(startPos, endPos, token)
+
+        Token(
+            { startPos = startPos
+              endPos = endPos
+              token = token }
+        )
 
     let handleInt firstDigit =
         let otherDigits = nextCharWhile (fun c -> c >= '0' && c <= '9')
@@ -165,26 +167,8 @@ let tokensFromText (fileName: string) (text: string) =
 
     loop []
 
-let formatSyntaxErrKind =
-    function
-    | Tab -> "TAB cannot be used for indentation or whitespace"
-    | UnhandledChar c -> $"unhandled character: {c}"
-    | UnterminatedStringLiteral s -> $"unterminated string literal: {s}"
-
 let formatResult fileName text result =
     match result with
-    | Token((sLine, sCol), (eLine, eCol), t) ->
-        $"{sLine}:{sCol} -> {eLine}:{eCol} = {t}"
+    | Token token -> formatPosToken token
     | EOF -> "EOF"
-    | SyntaxErr(fileName, (sLine, sCol), (eLine, eCol), kind) ->
-        let kind = formatSyntaxErrKind kind
-
-        let msg =
-            $"Syntax error in '{fileName}' on line {sLine} at column {sCol}: {kind}"
-
-        // if not (fileName.StartsWith("<")) then
-        //     msg <- $"{msg}\n\n"
-        //     letIO.StreamReader(fileName).ReadToEnd()
-
-
-        msg
+    | SyntaxErr err -> formatSyntaxErr err

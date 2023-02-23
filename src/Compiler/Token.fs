@@ -71,4 +71,17 @@ type Token =
     | Eq
     | Feed
 
-type PosToken = (uint * uint) * (uint * uint) * Token
+type PosToken =
+    { startPos: (uint * uint)
+      endPos: (uint * uint)
+      token: Token }
+
+let formatToken token = $"{token}"
+
+let formatPosToken token =
+    let { startPos = (sLine, sCol)
+          endPos = (eLine, eCol)
+          token = token } =
+        token
+
+    $"{sLine}:{sCol} -> {eLine}:{eCol} = {formatToken token}"
