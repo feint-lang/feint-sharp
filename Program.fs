@@ -7,7 +7,7 @@ open Feint.Interpreter
 type Operation =
     | RunCode
     | RunFile
-    // | PrintCodeTokens
+    | PrintCodeTokens
     // | PrintFileTokens
     // | PrintCodeAst
     // | PrintFileAst
@@ -36,30 +36,32 @@ type Argv() =
     [<ArgDescription("Run code snippet")>]
     [<ArgShortcut("-c")>]
     [<ArgShortcut("--code")>]
-    member val code = null with get, set
+    member val code: string = null with get, set
 
     [<ArgDescription("Run file")>]
     [<ArgExistingFile>]
     [<ArgPosition(0)>]
-    member val fileName = null with get, set
+    member val fileName: string = null with get, set
 
     [<ArgDescription("Print tokens")>]
     [<ArgShortcut("-t")>]
     [<ArgShortcut("--tokens")>]
     member val tokens = false with get, set
 
-    [<ArgDescription("Print AST instead of interpreting when running code or file")>]
-    [<ArgShortcut("-a")>]
-    [<ArgShortcut("--ast")>]
-    member val ast = false with get, set
+    // [<ArgDescription("Print AST instead of interpreting when running code or file")>]
+    // [<ArgShortcut("-a")>]
+    // [<ArgShortcut("--ast")>]
+    // member val ast = false with get, set
 
     // Operations ------------------------------------------------------
 
     member this.selectOperation() =
         if not (isNull this.code) then
-            // if this.tokens then PrintCodeTokens
+            if this.tokens then
+                PrintCodeTokens
             // elif this.ast then PrintCodeAst
-            RunCode
+            else
+                RunCode
         elif not (isNull this.fileName) then
             // if this.tokens then PrintFileTokens
             // elif this.ast then PrintFileAst
@@ -79,9 +81,14 @@ type Argv() =
         | Interpreter.ParseErr err -> ParseErr err
         | Interpreter.InterpretErr err -> InterpretErr err
 
-    // member this.printCodeTokens() =
-    //     Driver.printTokensFromText this.code "<code>"
-    //     Success
+    member this.printCodeTokens() =
+        let results = Lexer.tokensFromText "<code>" this.code
+
+        let handle result =
+            eprintfn "%s" (Lexer.formatResult "<code>" this.code result)
+
+        List.iter handle results
+        Success
 
     // member this.printFileTokens() =
     //     Driver.printTokensFromFile this.fileName
@@ -107,7 +114,7 @@ type Argv() =
             match this.selectOperation () with
             | RunCode -> this.runCode ()
             | RunFile -> this.runFile ()
-            // | PrintCodeTokens -> this.printCodeTokens ()
+            | PrintCodeTokens -> this.printCodeTokens ()
             // | PrintFileTokens -> this.printFileTokens ()
             // | PrintCodeAst -> this.printCodeAst ()
             // | PrintFileAst -> this.printFileAst ()

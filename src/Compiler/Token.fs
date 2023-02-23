@@ -71,7 +71,4 @@ type Token =
     | Eq
     | Feed
 
-type PosToken =
-    { startPos: (uint * uint)
-      endPos: (uint * uint)
-      token: Token }
+type PosToken = (uint * uint) * (uint * uint) * Token
