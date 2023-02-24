@@ -62,12 +62,12 @@ type Token =
     | LtOrEq
     | GT
     | GtOrEq
-    // In Place Operators --------------------------------------------------
+    // In Place Operators ----------------------------------------------
     | MulEq
     | DivEq
     | AddEq
     | SubEq
-    // Assignment Operators ------------------------------------------------
+    // Assignment Operators --------------------------------------------
     | Eq
     | Feed
 

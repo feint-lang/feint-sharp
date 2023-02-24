@@ -64,5 +64,5 @@ let ``unterminated string causes syntax error`` () =
     assertSyntaxErrEqual
         (lexer.nextToken ())
         (1u, 1u)
-        (1u, 7u)
-        (Errors.UnterminatedStringLiteral "\"string")
+        (2u, 0u)
+        (Errors.UnterminatedStringLiteral "\"string\n")

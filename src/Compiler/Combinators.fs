@@ -3,99 +3,114 @@ module Feint.Compiler.Combinators
 open System
 
 type Result<'a> =
-    | Success of 'a
-    | Failure of string
+    | Success of value: 'a
+    | Failure of message: string
 
-type Parser<'a> = Parser of (string -> Result<'a * string>)
+type Parser<'a> = Parser of parse: (string -> Result<'a * string>)
+
+// Entrypoint ----------------------------------------------------------
 
 let run parser input =
-    let (Parser p) = parser
-    p input
+    let (Parser parse) = parser
+    parse input
 
-let andThen p1 p2 =
-    let parser input =
-        match run p1 input with
-        | Success(v1, input') ->
-            match run p2 input' with
-            | Success(v2, input') -> Success((v1, v2), input')
-            | Failure f -> Failure f
-        | Failure f -> Failure f
-
-    Parser parser
-
-let (.>>.) = andThen
-
-let orElse p1 p2 =
-    let parser input =
-        match run p1 input with
-        | Success(v, input') -> Success(v, input')
-        | Failure _ ->
-            match run p2 input with
-            | Success(v, input') -> Success(v, input')
-            | Failure f -> Failure f
-
-    Parser parser
-
-let (<|>) = orElse
-
-let map parser mapper =
-    let parser input =
-        match run parser input with
-        | Success(v, input') -> Success(mapper v, input')
-        | Failure f -> Failure f
-
-    Parser parser
-
-let (|>>) = map
-
-let choice parsers = parsers |> List.reduce orElse
-
-let rec sequence parsers =
-    let parser input =
-        match parsers with
-        | [] -> Success([], input)
-        | (Parser p) :: [] ->
-            match p input with
-            | Failure f -> Failure f
-            | Success(r, input') -> Success([ r ], input')
-        | p1 :: p2 :: rest ->
-            match run (p1 .>>. p2) input with
-            | Failure f -> Failure f
-            | Success((v1, v2), input') ->
-                match run (sequence rest) input' with
-                | Failure f -> Failure f
-                | Success(tail, _) -> Success([ v1; v2 ] @ tail, input')
-
-    Parser parser
+// Primitives ----------------------------------------------------------
 
 let matchChar c =
-    let parser input =
+    Parser(fun input ->
         match input with
         | null
         | "" -> Failure "Unexpected EOF"
         | _ ->
             match input.[0] with
             | c' when c' = c -> Success(c, input.[1..])
-            | d -> Failure $"Expected char '{c}'; got '{d}'"
-
-    Parser parser
+            | d -> Failure $"Expected char '{c}'; got '{d}'")
 
 let matchCharI c = matchChar (Char.ToLower c)
 
-let anyCharOf chars = chars |> List.map matchChar |> choice
+let andThen p1 p2 =
+    Parser(fun input ->
+        match run p1 input with
+        | Success(v1, input') ->
+            match run p2 input' with
+            | Success(v2, input'') -> Success((v1, v2), input'')
+            | Failure f -> Failure f
+        | Failure f -> Failure f)
 
-let anyCharOfI chars =
-    chars |> List.map Char.ToLower |> anyCharOf
+let (.>>.) = andThen
+
+let orElse p1 p2 =
+    Parser(fun input ->
+        match run p1 input with
+        | Success(v, input') -> Success(v, input')
+        | Failure _ ->
+            match run p2 input with
+            | Success(v, input') -> Success(v, input')
+            | Failure f -> Failure f)
+
+let (<|>) = orElse
+
+let map parser mapping =
+    Parser(fun input ->
+        match run parser input with
+        | Success(v, input') -> Success(mapping v, input')
+        | Failure f -> Failure f)
+
+let (|>>) = map
+
+// ---------------------------------------------------------------------
+
+let choice parsers = parsers |> Seq.reduce orElse
+
+let zeroOrMore x = ()
+let oneOrMore x = ()
+
+let sequence parsers =
+    Parser(fun input ->
+        let rec loop results parsers input =
+            match Seq.isEmpty parsers with
+            | true -> Success(results, input)
+            | false ->
+                match run (Seq.head parsers) input with
+                | Failure f -> Failure f
+                | Success(v, input') ->
+                    try
+                        let tail = Seq.tail parsers
+                        loop (results @ [ v ]) (tail) input'
+                    with :? InvalidOperationException ->
+                        Success(results, input')
+
+        loop [] parsers input)
+
+// Characters ----------------------------------------------------------
+
+let anyOf chars = chars |> Seq.map matchChar |> choice
+let anyOfI chars = chars |> Seq.map matchCharI |> choice
+
+let asciiLower = anyOf [ 'a' .. 'z' ]
+let asciiUpper = anyOf [ 'A' .. 'Z' ]
+let asciiLetter = choice [ asciiLower; asciiUpper ]
+
+// Numbers -------------------------------------------------------------
 
 let zero = matchChar '0'
-let digit = anyCharOf [ '0' .. '9' ]
-let natural = anyCharOf [ '1' .. '9' ]
-let binDigit = anyCharOf [ '0' .. '1' ]
-let octDigit = anyCharOf [ '0' .. '7' ]
-let hexLetter = anyCharOfI [ 'a' .. 'f' ]
+let digit = anyOf [ '0' .. '9' ]
+let natural = anyOf [ '1' .. '9' ]
+let binDigit = anyOf [ '0' .. '1' ]
+let octDigit = anyOf [ '0' .. '7' ]
+let hexLetter = anyOfI [ 'a' .. 'f' ]
 let hexDigit = choice [ digit; hexLetter ]
 
-let asciiLower = anyCharOf [ 'a' .. 'z' ]
-let asciiUpper = anyCharOf [ 'A' .. 'Z' ]
-let asciiLetter = choice [ asciiLower; asciiUpper ]
-let asciiLetterOrDigit = [ asciiLetter; digit ]
+// Identifiers ---------------------------------------------------------
+
+let asciiLetterOrDigit = choice [ asciiLetter; digit ]
+
+// Keywords ------------------------------------------------------------
+
+let keyword (word: string) =
+    word |> Seq.map matchChar |> sequence |>> Seq.toArray |>> String
+
+// Strings -------------------------------------------------------------
+
+let singleQuotedString = sequence [| matchChar '\''; matchChar '\'' |]
+let doubleQuotedString = sequence [| matchChar '"'; matchChar '"' |]
