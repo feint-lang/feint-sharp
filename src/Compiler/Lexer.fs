@@ -80,6 +80,14 @@ type Lexer(fileName: string, stream: IO.TextReader) =
                 col <- col + 1u
                 Some(char c)
 
+    /// Skip next character in queue unconditionally.
+    let skipNext () = next () |> ignore
+
+    /// Skip next character then peek at next character in queue.
+    let skipNextPeek () =
+        skipNext ()
+        peek ()
+
     let nextIf predicate =
         match peek () with
         | Some c ->
@@ -106,23 +114,12 @@ type Lexer(fileName: string, stream: IO.TextReader) =
             match predicate c with
             | false -> ()
             | true ->
-                next () |> ignore
+                skipNext ()
                 skipWhile (predicate)
 
     let skipWhitespace () = skipWhile (fun c -> c = ' ')
 
-    // Error Handlers --------------------------------------------------
-
-    let makeSyntaxErr kind =
-        endPos <- (line, col)
-
-        SyntaxErr
-            { fileName = fileName
-              startPos = startPos
-              endPos = endPos
-              kind = kind }
-
-    // Handlers --------------------------------------------------------
+    // Result Constructors ---------------------------------------------
 
     let makeToken token =
         endPos <- (line, col)
@@ -133,29 +130,64 @@ type Lexer(fileName: string, stream: IO.TextReader) =
               token = token }
         )
 
-    let handleInt firstDigit =
-        let otherDigits = nextWhile (fun c -> c >= '0' && c <= '9')
-        let str = firstDigit :: otherDigits |> List.toArray |> String
-        makeToken (Int(bigint.Parse str))
+    /// Simplifies the creation of 2-char operator tokens.
+    let skipNextMakeToken token =
+        skipNext ()
+        makeToken token
 
-    let handleStr quoteChar =
+    let makeSyntaxErr kind =
+        endPos <- (line, col)
+
+        SyntaxErr
+            { fileName = fileName
+              startPos = startPos
+              endPos = endPos
+              kind = kind }
+
+    // Scanners --------------------------------------------------------
+    //
+    // Scanners scan forward from the current position to produce a
+    // token from one or more characters.
+
+    // TODO: Handle floats
+    let scanNumber firstDigit =
+        let otherDigits = nextWhile (fun c -> c >= '0' && c <= '9')
+        let digits = charsToString (firstDigit :: otherDigits)
+        makeToken (Int(bigint.Parse digits))
+
+    let scanStr quoteChar =
         let rec loop chars =
             match next (), peek () with
             | None, _ -> chars
             | Some c, _ when c = quoteChar -> chars
             | Some '\\', Some d ->
-                next () |> ignore
+                skipNext ()
                 processEscapedChar d @ loop chars
             | Some c, _ -> [ c ] @ loop chars
 
-        let chars = loop []
+        let str = charsToString (loop [])
         let terminated = lastChar = Some quoteChar
-        let str = chars |> Seq.toArray |> String
 
         if terminated then
             makeToken (Str str)
         else
             makeSyntaxErr (UnterminatedStringLiteral $"{quoteChar}{str}")
+
+    let scanKeywordOrIdent firstChar =
+        let otherChars = nextWhile (fun c -> Char.IsAsciiLetterOrDigit c || c = '_')
+        let word = charsToString (firstChar :: otherChars)
+
+        match keywordToken word with
+        | Some token -> makeToken token
+        | None -> makeToken (Ident word)
+
+    let scanSpecialKeywordOrIdent firstChar =
+        let otherChars = nextWhile (fun c -> Char.IsAsciiLetterOrDigit c || c = '_')
+        let word = charsToString (firstChar :: otherChars)
+
+        match keywordToken word with
+        | Some token -> makeToken token
+        | None -> makeToken (SpecialIdent word)
 
     // API -------------------------------------------------------------
 
@@ -164,40 +196,97 @@ type Lexer(fileName: string, stream: IO.TextReader) =
     member _.nextToken() =
         skipWhitespace ()
 
-        match next () with
-        | None -> EOF
-        | Some c ->
+        match next (), peek () with
+        | None, _ -> EOF
+        | Some c, d ->
             startPos <- (line, col)
 
             // Default end position for token. Will be updated if more
             // characters are consumed.
             endPos <- (line, col)
 
-            match c with
+            match c, d with
+            // 2-char Tokens ===========================================
+
+            // Scopes --------------------------------------------------
+            | '-', Some '>' -> skipNextMakeToken ScopeStart
+            | '=', Some '>' -> skipNextMakeToken FuncStart
+
+            // Misc ----------------------------------------------------
+            | '.', Some '.' ->
+                match skipNextPeek () with
+                | Some '.' -> skipNextMakeToken Ellipsis
+                | _ -> makeToken DotDot
+
+            // Unary Operators -----------------------------------------
+            | '!', Some '!' -> skipNextMakeToken BangBang
+
+            // Doc comment or floor div
+            | '/', Some '/' -> skipNextMakeToken DoubleSlash
+
+            // Comparison Operators ------------------------------------
+            | '=', Some '=' -> skipNextMakeToken EqEq
+            | '!', Some '=' -> skipNextMakeToken NotEq
+            | '~', Some '~' -> skipNextMakeToken TildeTilde
+            | '!', Some '~' -> skipNextMakeToken BangTilde
+
+            // Logic Operators -----------------------------------------
+            | '&', Some '&' -> skipNextMakeToken And
+            | '|', Some '|' -> skipNextMakeToken Or
+            | '?', Some '?' -> skipNextMakeToken NilOr
+
+            // Comparison Operators ------------------------------------
+            | '<', Some '=' -> skipNextMakeToken LtOrEq
+            | '>', Some '=' -> skipNextMakeToken GtOrEq
+
+            // Assignment Operators ------------------------------------
+            | '<', Some '-' -> skipNextMakeToken Feed
+
+            // 1-char Tokens ===========================================
+
+            | '\n', _ -> makeToken Newline
+
+            // Misc ----------------------------------------------------
+            | ':', _ -> makeToken Colon
+            | ',', _ -> makeToken Comma
+            | '.', _ -> makeToken Dot
+
             // Groupings -----------------------------------------------
-            | '(' -> makeToken LParen
-            | ')' -> makeToken RParen
-            | '[' -> makeToken LBrace
-            | ']' -> makeToken RBrace
-            | '{' -> makeToken LBracket
-            | '}' -> makeToken RBracket
+            | '(', _ -> makeToken LParen
+            | ')', _ -> makeToken RParen
+            | '[', _ -> makeToken LBrace
+            | ']', _ -> makeToken RBrace
+            | '{', _ -> makeToken LBracket
+            | '}', _ -> makeToken RBracket
+
+            // Unary Operators -----------------------------------------
+            | '!', _ -> makeToken BangBang
+
             // Binary Operators ----------------------------------------
-            | '^' -> makeToken Caret
-            | '*' -> makeToken Star
-            | '/' -> makeToken Slash
-            // TODO:
-            // | Some '//' -> makeToken this.pos Slash
-            | '+' -> makeToken Plus
-            | '-' -> makeToken Dash
-            | '=' ->
-                match nextIf (fun d -> d = '=') with
-                | Some _ -> makeToken EqEq
-                | _ -> makeToken Eq
+            | '^', _ -> makeToken Caret
+            | '*', _ -> makeToken Star
+            | '/', _ -> makeToken Slash
+            | '+', _ -> makeToken Plus
+            | '-', _ -> makeToken Dash
+
+            // Assignment Operators ------------------------------------
+            | '=', _ -> makeToken Eq
+
+            // Comparison Operators ------------------------------------
+            | '<', _ -> makeToken Lt
+            | '>', _ -> makeToken GT
+
             // Types ---------------------------------------------------
-            | firstDigit when System.Char.IsDigit(c) -> handleInt firstDigit
-            | quoteChar when c = '"' || c = '\'' -> handleStr quoteChar
+            | '@', _ -> makeToken Always
+            | f, _ when Char.IsDigit(f) -> scanNumber f
+            | q, _ when q = '"' || q = '\'' -> scanStr q
+
+            // Keywords & Identifiers ----------------------------------
+            | f, _ when Char.IsAsciiLetter(f) -> scanKeywordOrIdent f
+            | '$', Some f when Char.IsAsciiLetter(f) -> scanSpecialKeywordOrIdent f
+
             // Errors --------------------------------------------------
-            | c ->
+            | _ ->
                 match c with
                 | '\t' -> makeSyntaxErr Tab
                 | unhandled -> makeSyntaxErr (UnhandledChar unhandled)

@@ -1,6 +1,8 @@
 module Feint.Compiler.LexerUtil
 
-let processEscapedChar d =
+let charsToString chars = new string (chars |> Seq.toArray)
+
+let processEscapedChar (d: char) =
     match d with
     | '\\' -> [ '\\' ] // backslash
     | '0' -> [ '\000' ] // null

@@ -11,11 +11,13 @@ type Token =
     | DocComment of string
     // Scopes ----------------------------------------------------------
     | ScopeStart
-    | ScopeEnd
-    | InlineScopeStart
-    | InlineScopeEnd
     | FuncStart
-    | InlineFuncStart
+    // Misc ------------------------------------------------------------
+    | Colon
+    | Comma
+    | Dot
+    | DotDot
+    | Ellipsis
     // Groupings -------------------------------------------------------
     | LParen
     | RParen
@@ -28,15 +30,27 @@ type Token =
     | True
     | False
     // Types -----------------------------------------------------------
+    | Always
     | Int of bigint
     | Float of float
     | Str of string
     // Keywords --------------------------------------------------------
+    | Import
+    | As
     | Block
     | If
     | Else
     | Match
+    | Loop
+    | Break
+    | Continue
+    | Jump
+    | Return
+    | Halt
     | Print
+    // Identifiers -----------------------------------------------------
+    | Ident of string
+    | SpecialIdent of string
     // Unary Operators -------------------------------------------------
     | Bang
     | BangBang
@@ -52,21 +66,14 @@ type Token =
     | Or
     | NilOr
     // Comparison Operators --------------------------------------------
-    | DollarDollar
-    | DollarNot
-    | EqEqEq
-    | NotEqEq
+    | TildeTilde
+    | BangTilde
     | EqEq
     | NotEq
     | Lt
     | LtOrEq
     | GT
     | GtOrEq
-    // In Place Operators ----------------------------------------------
-    | MulEq
-    | DivEq
-    | AddEq
-    | SubEq
     // Assignment Operators --------------------------------------------
     | Eq
     | Feed
@@ -75,6 +82,27 @@ type PosToken =
     { startPos: (uint * uint)
       endPos: (uint * uint)
       token: Token }
+
+let keywordToken word =
+    match word with
+    | "nil" -> Some Nil
+    | "true" -> Some True
+    | "false" -> Some False
+    //
+    | "import" -> Some Import
+    | "as" -> Some As
+    | "block" -> Some Block
+    | "if" -> Some If
+    | "else" -> Some Else
+    | "match" -> Some Match
+    | "loop" -> Some Loop
+    | "break" -> Some Break
+    | "continue" -> Some Continue
+    | "jump" -> Some Jump
+    | "return" -> Some Return
+    | "$halt" -> Some Halt
+    | "$print" -> Some Print
+    | _ -> None
 
 let formatToken token = $"{token}"
 
