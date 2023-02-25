@@ -3,7 +3,6 @@ module Feint.Interpreter.Interpreter
 open System
 open System.Collections.Generic
 
-open Feint.Compiler
 open Feint.Compiler.Ast
 
 exception InterpreterExc of string
@@ -37,7 +36,7 @@ let debugVal =
 
 let bigintOfInt b =
     match b >= bigint Int32.MinValue && b <= bigint Int32.MaxValue with
-    | true -> Some((int) b)
+    | true -> Some(int b)
     | false -> None
 
 type Interpreter(showStatementResult) =
@@ -88,7 +87,7 @@ type Interpreter(showStatementResult) =
         | Str v -> pushStr v
         | Ident name ->
             match names.TryGetValue name with
-            | true, v -> push (v)
+            | true, v -> push v
             | _ -> raiseErr $"Name not found: {name}"
         | Assignment a ->
             this.interpretExpr a.value
@@ -136,7 +135,7 @@ type Interpreter(showStatementResult) =
 
     member _.interpretPow lhs rhs =
         match (lhs, rhs) with
-        | IntVal a, IntVal b when (bigintOfInt b).IsSome -> pushInt (a ** (int) b)
+        | IntVal a, IntVal b when (bigintOfInt b).IsSome -> pushInt (a ** int b)
         | FloatVal a, FloatVal b -> pushFloat (a ** b)
         | _ -> raiseErr $"Cannot raise {debugVal lhs} to {debugVal rhs}"
 
@@ -233,21 +232,24 @@ type Interpreter(showStatementResult) =
 // Interpreter Entrypoints ---------------------------------------------
 
 let interpret statements =
-    let intepreter = Interpreter false
+    let interpreter = Interpreter false
 
     try
-        intepreter.interpret statements
+        interpreter.interpret statements
         Success
     with InterpreterExc msg ->
         InterpretErr msg
 
-let handleParseResultForInterpret = InterpretErr "not impelemented"
+let handleParseResultForInterpret =
+    InterpretErr "handleParseResultForInterpret not implemented"
 // function
 // | Driver.Statements statements -> interpret statements
 // | Driver.Error err -> ParseErr err
 
-let interpretText text fileName = InterpretErr "not impelemented"
+let interpretText text fileName =
+    InterpretErr "interpretFile not implemented"
 // Driver.parseText text fileName |> handleParseResultForInterpret
 
-let interpretFile fileName = InterpretErr "not impelemented"
+let interpretFile fileName =
+    InterpretErr "interpretFile not implemented"
 // Driver.parseFile fileName |> handleParseResultForInterpret

@@ -2,7 +2,6 @@ module Feint.Interpreter.Repl
 
 open System
 
-open Feint.Compiler.Driver
 open Feint.Interpreter.Interpreter
 
 type Result =
@@ -11,6 +10,8 @@ type Result =
 
 type Repl() =
     let interpreter = Interpreter(true)
+
+    // TODO: Implement history
     let mutable history_path: string option = None
 
     let rec readLine () =

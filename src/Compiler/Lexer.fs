@@ -30,7 +30,7 @@ type Lexer(fileName: string, stream: IO.TextReader) =
     /// `next` are called.
     let buffer = Array.zeroCreate READ_BUF_MAX
 
-    let queue = new Queue<char>()
+    let queue = Queue<char>()
     do queue.EnsureCapacity(READ_BUF_MAX) |> ignore
 
     // NOTE: Positions are 1-based.
@@ -195,15 +195,15 @@ type Lexer(fileName: string, stream: IO.TextReader) =
 
     let scanLiteralStr quoteChar =
         match scanStr quoteChar with
-        | (str, true) -> makeToken (Str str)
-        | (str, false) -> makeSyntaxErr (UnterminatedLiteralStr $"{quoteChar}{str}")
+        | str, true -> makeToken (Str str)
+        | str, false -> makeSyntaxErr (UnterminatedLiteralStr $"{quoteChar}{str}")
 
     let scanFormatStr quoteChar =
         skip () |> ignore // skip quote char
 
         match scanStr quoteChar with
-        | (str, true) -> makeToken (FormatStr str)
-        | (str, false) -> makeSyntaxErr (UnterminatedFormatStr $"${quoteChar}{str}")
+        | str, true -> makeToken (FormatStr str)
+        | str, false -> makeSyntaxErr (UnterminatedFormatStr $"${quoteChar}{str}")
 
     let scanKeywordOrIdent firstChar =
         let otherChars = nextWhile (fun c -> Char.IsAsciiLetterOrDigit c || c = '_')
@@ -357,10 +357,10 @@ type Lexer(fileName: string, stream: IO.TextReader) =
                 | unhandled -> makeSyntaxErr (UnhandledChar unhandled)
 
 let fromText (fileName: string) (text: string) =
-    new Lexer(fileName, new IO.StringReader(text))
+    Lexer(fileName, new IO.StringReader(text))
 
 let fromFile (fileName: string) =
-    new Lexer(fileName, new IO.StreamReader(fileName))
+    Lexer(fileName, new IO.StreamReader(fileName))
 
 let tokensFromText (fileName: string) (text: string) =
     let lexer = fromText fileName text

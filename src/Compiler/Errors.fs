@@ -10,8 +10,8 @@ type SyntaxErrKind =
 
 type SyntaxErr =
     { fileName: string
-      startPos: (uint * uint)
-      endPos: (uint * uint)
+      startPos: uint * uint
+      endPos: uint * uint
       kind: SyntaxErrKind }
 
 type ParseErrKind =

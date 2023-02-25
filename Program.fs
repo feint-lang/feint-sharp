@@ -95,7 +95,6 @@ type Argv() =
     member this.printCodeTokens() =
         Lexer.tokensFromText "<code>" this.code |> this.printTokens
 
-
     member this.printFileTokens() =
         Lexer.tokensFromFile this.fileName |> this.printTokens
 
@@ -131,14 +130,14 @@ type Argv() =
 let main argv =
     // XXX: Required to avoid exception due to BackgroundColor and
     //      ForegroundColor not being set on Unix platforms.
-    if (int) System.Console.BackgroundColor = -1 then
-        System.Console.BackgroundColor <- System.ConsoleColor.Black
+    if int Console.BackgroundColor = -1 then
+        Console.BackgroundColor <- ConsoleColor.Black
 
-    if (int) System.Console.ForegroundColor = -1 then
-        System.Console.ForegroundColor <- System.ConsoleColor.White
+    if int Console.ForegroundColor = -1 then
+        Console.ForegroundColor <- ConsoleColor.White
 
     try
-        let result = PowerArgs.Args.InvokeMain<Argv>(argv)
+        let result = Args.InvokeMain<Argv>(argv)
 
         match result.Cancelled with
         | true -> 0 // --help
@@ -147,14 +146,14 @@ let main argv =
             | null -> 254 // unreachable?
             | _ -> 255 // bad args
     with Exit result ->
-        match result with
-        | Success -> 0
-        | ParseErr msg ->
-            eprintfn "%s" msg
-            1
-        | InterpretErr msg ->
-            eprintfn "%s" msg
-            2
-        | ReplErr msg ->
-            eprintfn "%s" msg
-            3
+        let msg, exitCode =
+            match result with
+            | Success -> "", 0
+            | ParseErr msg -> msg, 1
+            | InterpretErr msg -> msg, 2
+            | ReplErr msg -> msg, 3
+
+        if msg.Length > 0 then
+            Console.Error.WriteLine msg
+
+        exitCode

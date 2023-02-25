@@ -80,8 +80,8 @@ type Token =
 
 type PosToken =
     // TODO: Add constructor?
-    { startPos: (uint * uint)
-      endPos: (uint * uint)
+    { startPos: uint * uint
+      endPos: uint * uint
       token: Token }
 
 let makePosToken startPos endPos token =

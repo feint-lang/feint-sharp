@@ -168,7 +168,7 @@ and formatExpr expr level =
     // Identifiers
     | Ident name -> name
     | SpecialIdent name -> name
-    // Assigments
+    // Assignments
     | Assignment a -> $"{a.name} = {a.value}"
     | Reassignment a -> $"{a.name} <- {a.value}"
     // Operations
