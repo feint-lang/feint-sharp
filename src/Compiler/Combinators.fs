@@ -20,12 +20,12 @@ let run parser lexer =
 
 // Primitives ----------------------------------------------------------
 
-let matchToken (token: Tokens.Token) =
+let matchToken token =
     Parser(fun lexer ->
         match lexer.nextToken () with
-        | Lexer.Token t when t.token = token -> Success t
-        | Lexer.Token t -> ParseErr(makeParseErr (ExpectedToken token))
-        | Lexer.EOF -> ParseErr(makeParseErr UnexpectedEOF)
+        | Token posToken when posToken.token = token -> Success posToken
+        | Token _ -> ParseErr(makeParseErr (ExpectedToken token))
+        | EOF -> ParseErr(makeParseErr UnexpectedEOF)
         | Lexer.SyntaxErr e -> SyntaxErr e)
 
 let andThen p1 p2 =
