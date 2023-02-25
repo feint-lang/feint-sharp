@@ -34,6 +34,7 @@ type Token =
     | Int of bigint
     | Float of float
     | Str of string
+    | FormatStr of string
     // Keywords --------------------------------------------------------
     | Import
     | As

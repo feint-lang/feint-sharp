@@ -12,9 +12,23 @@ type Result =
     | EOF
     | SyntaxErr of SyntaxErr
 
+/// The `Lexer` converts a stream of chars to tokens. These tokens can
+/// be retrieved by repeatedly calling the `nextToken` method until an
+/// `EOF` token or `SyntaxErr` is returned. The `tokens` method can be
+/// used to get all the tokens as a list of `Result`s for use in tests.
+///
+/// The `Lexer` is intentionally simple, concerning itself only with
+/// generating tokens and detecting simple syntax errors (such as
+/// unexpected characters in the input stream and unterminated string
+/// literals). The `Parser` is responsible for determining whether the
+/// generated tokens represent a valid program.
 type Lexer(fileName: string, stream: IO.TextReader) =
     let stream = stream
-    let mutable queue = new Queue<char>()
+
+    /// Chars are read from the `stream` into this queue, which is
+    /// refilled as needed when `peek` and `next` are called.
+    let queue = new Queue<char>()
+    do queue.EnsureCapacity(4096) |> ignore
 
     // Last character read from queue.
     let mutable lastChar = None
@@ -35,8 +49,10 @@ type Lexer(fileName: string, stream: IO.TextReader) =
     ///
     /// Returns a flag indicating whether the queue contains any items.
     ///
-    /// TODO: This could be made more robust by reading N bytes into a
-    ///       preallocated buffer.
+    /// XXX: This is prone to failure if malicious input contains
+    ///      extremely long line. It could be made more robust by
+    ///      reading a preset number of bytes into a preallocated
+    ///      buffer, but this would add complexity.
     let fill () =
         if queue.Count = 0 then
             match stream.ReadLine() with
@@ -159,11 +175,19 @@ type Lexer(fileName: string, stream: IO.TextReader) =
 
         let str = charsToString (loop [])
         let terminated = lastChar = Some quoteChar
+        (str, terminated)
 
-        if terminated then
-            makeToken (Str str)
-        else
-            makeSyntaxErr (UnterminatedStringLiteral $"{quoteChar}{str}")
+    let scanLiteralStr quoteChar =
+        match scanStr quoteChar with
+        | (str, true) -> makeToken (Str str)
+        | (str, false) -> makeSyntaxErr (UnterminatedLiteralStr $"{quoteChar}{str}")
+
+    let scanFormatStr quoteChar =
+        skipNext () // skip quote char
+
+        match scanStr quoteChar with
+        | (str, true) -> makeToken (FormatStr str)
+        | (str, false) -> makeSyntaxErr (UnterminatedFormatStr $"${quoteChar}{str}")
 
     let scanKeywordOrIdent firstChar =
         let otherChars = nextWhile (fun c -> Char.IsAsciiLetterOrDigit c || c = '_')
@@ -198,21 +222,20 @@ type Lexer(fileName: string, stream: IO.TextReader) =
     /// Start and end positions of current token.
     member _.pos = (startPos, endPos)
 
-    /// Get all the tokens as a list of results. If a syntax error is
-    /// encountered, the last item will be a `SyntaxErr`.
+    /// Get all the tokens as a list of `Result`s. If a syntax error is
+    /// encountered, the last item will be a `SyntaxErr`; otherwise the
+    /// last item will be `EOF`.
     member this.tokens() =
         let rec loop tokens =
-            let result = this.nextToken ()
-
-            match result with
-            | Token _ -> [ result ] @ (loop tokens)
-            | EOF -> [ EOF ]
-            | SyntaxErr _ -> [ result ]
+            match this.nextToken () with
+            | Token _ as result -> [ result ] @ (loop tokens)
+            | result -> [ result ]
 
         loop []
 
-    /// Get the next token. Returns an `EOF` token when the stream
-    /// reaches EOF.
+    /// Get the next token. Returns `EOF` when the end of the `stream`
+    /// is reached. Returns a `SyntaxErr` when a syntax error is
+    /// encountered.
     member _.nextToken() =
         skipWhitespace ()
 
@@ -299,12 +322,14 @@ type Lexer(fileName: string, stream: IO.TextReader) =
             // Types ---------------------------------------------------
             | '@', _ -> makeToken Always
             | f, _ when Char.IsAsciiDigit(f) -> scanNumber f
-            | q, _ when q = '"' || q = '\'' -> scanStr q
+            | q, _ when q = '"' || q = '\'' -> scanLiteralStr q
+            | '$', Some q when q = '"' || q = '\'' -> scanFormatStr q
 
             // Keywords & Identifiers ----------------------------------
             | f, _ when Char.IsAsciiLetter(f) -> scanKeywordOrIdent f
             | '$', Some f when Char.IsAsciiLetter(f) -> scanSpecialKeywordOrIdent ()
 
+            // Comment -------------------------------------------------
             | '#', _ -> scanComment ()
 
             // Errors --------------------------------------------------
