@@ -1,10 +1,15 @@
 module Feint.Compiler.Lexer.Tests
 
+open System.IO
+
 open Xunit
 
 open Feint.Compiler
 
 let makeLexer = Lexer.fromText "<test>"
+
+let makeLexerFromFile fileName =
+    Lexer.fromFile (Path.Combine(__SOURCE_DIRECTORY__, fileName))
 
 let assertTokenEqual result startPos endPos token =
     Assert.Equal(
@@ -53,9 +58,19 @@ let ``unknown character causes syntax error`` () =
         (Errors.UnhandledChar '~')
 
 [<Fact>]
-let ``parse string`` () =
+let ``lex string`` () =
     let lexer = makeLexer "\"string\""
-    assertTokenEqual (lexer.nextToken ()) (1u, 1u) (1u, 8u) (Token.Str("string"))
+    assertTokenEqual (lexer.nextToken ()) (1u, 1u) (1u, 8u) (Token.Str "string")
+
+[<Fact>]
+let ``lex file`` () =
+    let lexer = makeLexerFromFile "example.fi"
+    assertTokenEqual (lexer.nextToken ()) (1u, 1u) (1u, 3u) Token.Nil
+    assertTokenEqual (lexer.nextToken ()) (2u, 0u) (2u, 0u) Token.Newline
+    assertTokenEqual (lexer.nextToken ()) (2u, 1u) (2u, 9u) (Token.Comment "# comment")
+    let remainingTokens = lexer.tokens ()
+    let lastToken = List.last remainingTokens
+    Assert.Equal(lastToken, EOF)
 
 [<Fact>]
 let ``unterminated string causes syntax error`` () =
@@ -64,5 +79,5 @@ let ``unterminated string causes syntax error`` () =
     assertSyntaxErrEqual
         (lexer.nextToken ())
         (1u, 1u)
-        (2u, 0u)
-        (Errors.UnterminatedLiteralStr "\"string\n")
+        (1u, 7u)
+        (Errors.UnterminatedLiteralStr "\"string")

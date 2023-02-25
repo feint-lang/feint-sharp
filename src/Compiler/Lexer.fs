@@ -7,12 +7,14 @@ open Errors
 open LexerUtil
 open Token
 
+let READ_BUF_MAX = 1024
+
 type Result =
     | Token of PosToken
     | EOF
     | SyntaxErr of SyntaxErr
 
-/// The `Lexer` converts a stream of chars to tokens. These tokens can
+/// The `Lexer` converts a `stream` of chars to tokens. These tokens can
 /// be retrieved by repeatedly calling the `nextToken` method until an
 /// `EOF` token or `SyntaxErr` is returned. The `tokens` method can be
 /// used to get all the tokens as a list of `Result`s for use in tests.
@@ -25,13 +27,13 @@ type Result =
 type Lexer(fileName: string, stream: IO.TextReader) =
     let stream = stream
 
-    /// Chars are read from the `stream` into this queue, which is
-    /// refilled as needed when `peek` and `next` are called.
-    let queue = new Queue<char>()
-    do queue.EnsureCapacity(4096) |> ignore
+    /// Characters are read from the input `stream` into this buffer and
+    /// then into a queue, which is refilled as needed when `peek` and
+    /// `next` are called.
+    let buffer = Array.zeroCreate READ_BUF_MAX
 
-    // Last character read from queue.
-    let mutable lastChar = None
+    let queue = new Queue<char>()
+    do queue.EnsureCapacity(READ_BUF_MAX) |> ignore
 
     // NOTE: Positions are 1-based.
     let mutable line = 1u
@@ -43,27 +45,28 @@ type Lexer(fileName: string, stream: IO.TextReader) =
     /// End position of the current lexeme/token.
     let mutable endPos = (line, col)
 
-    /// Fill the queue IF it's empty by reading the next line from the
-    /// stream. All newline styles are normalized to `\n` to simplify
-    /// lexing.
-    ///
-    /// Returns a flag indicating whether the queue contains any items.
-    ///
-    /// XXX: This is prone to failure if malicious input contains
-    ///      extremely long line. It could be made more robust by
-    ///      reading a preset number of bytes into a preallocated
-    ///      buffer, but this would add complexity.
+    /// Action performed when a newline is encountered.
+    let newLine () =
+        line <- line + 1u
+        col <- 0u
+
+    /// Fill `queue` if it's empty by reading up to `READ_BUFFER_MAX`
+    /// characters from the input `stream`. Returns a flag indicating
+    /// whether `queue` contains at least one character.
     let fill () =
         if queue.Count = 0 then
-            match stream.ReadLine() with
-            | null -> ()
-            | line ->
-                Seq.iter queue.Enqueue line
-                queue.Enqueue '\n'
+            match stream.Read(buffer, 0, READ_BUF_MAX) with
+            | 0 -> false
+            | n ->
+                for i = 0 to n - 1 do
+                    queue.Enqueue buffer[i]
 
-        queue.Count > 0
+                true
+        else
+            true
 
-    /// Peek at next character in queue.
+    /// Peek at next character in `queue`. Returns `None` if `queue` is
+    /// empty and input `stream` is depleted.
     let peek () =
         let c = ref '\000'
 
@@ -71,7 +74,8 @@ type Lexer(fileName: string, stream: IO.TextReader) =
         else if fill () && queue.TryPeek(c) then Some(c.Value)
         else None
 
-    /// Read next character from queue.
+    /// Read next character from `queue`. Returns `None` if `queue` is
+    /// empty and input `stream` is depleted.
     let read () =
         let c = ref '\000'
 
@@ -79,30 +83,31 @@ type Lexer(fileName: string, stream: IO.TextReader) =
         else if fill () && queue.TryDequeue(c) then Some c.Value
         else None
 
-    /// Get next character, set last character read, and increment line
-    /// and/or column number.
+    /// Get next character. `\r\n` newlines are normalized to `\n` in
+    /// order to simplify lexing (`\r`s not followed by a `\n` ar left
+    /// as-is).
+    ///
+    /// If a newline is encountered, `line` is incremented and `col` is
+    /// set to `0`. Otherwise, `col` is incremented.
     let next () =
-        lastChar <- read ()
-
-        match lastChar with
+        match read () with
         | None -> None
         | Some c ->
             match c with
+            | '\r' ->
+                // Normalize \r\n to \n
+                match peek () with
+                | Some '\n' ->
+                    read () |> ignore
+                    newLine ()
+                    Some '\n'
+                | _ -> Some '\r'
             | '\n' ->
-                line <- line + 1u
-                col <- 0u
+                newLine ()
                 Some '\n'
             | _ ->
                 col <- col + 1u
-                Some(char c)
-
-    /// Skip next character in queue unconditionally.
-    let skipNext () = next () |> ignore
-
-    /// Skip next character then peek at next character in queue.
-    let skipNextPeek () =
-        skipNext ()
-        peek ()
+                Some c
 
     let rec nextWhile predicate =
         match peek () with
@@ -115,17 +120,29 @@ type Lexer(fileName: string, stream: IO.TextReader) =
                 | None -> []
                 | Some c -> [ c ] @ nextWhile (predicate)
 
-    let rec skipWhile predicate =
+    let skip () = next () |> ignore
+
+    let skipPeek () =
+        skip ()
+        peek ()
+
+    let skipIf predicate =
         match peek () with
-        | None -> ()
+        | None -> false
         | Some c ->
             match predicate c with
-            | false -> ()
+            | false -> false
             | true ->
-                skipNext ()
-                skipWhile (predicate)
+                skip ()
+                true
 
-    let skipWhitespace () = skipWhile (fun c -> c = ' ')
+    let rec skipWhile predicate =
+        match skipIf predicate with
+        | true -> skipWhile predicate
+        | false -> ()
+
+    let skipSpace () = skipIf (fun c -> c = ' ')
+    let skipContiguousSpaces () = skipWhile (fun c -> c = ' ')
 
     // Result Constructors ---------------------------------------------
 
@@ -138,9 +155,9 @@ type Lexer(fileName: string, stream: IO.TextReader) =
               token = token }
         )
 
-    /// Simplifies the creation of 2-char operator tokens.
+    /// Simplifies the creation of 2-character tokens.
     let skipNextMakeToken token =
-        skipNext ()
+        skip ()
         makeToken token
 
     let makeSyntaxErr kind =
@@ -164,17 +181,20 @@ type Lexer(fileName: string, stream: IO.TextReader) =
         makeToken (Int(bigint.Parse digits))
 
     let scanStr quoteChar =
+        let mutable terminated = false
+
         let rec loop chars =
             match next (), peek () with
             | None, _ -> chars
-            | Some c, _ when c = quoteChar -> chars
+            | Some c, _ when c = quoteChar ->
+                terminated <- true
+                chars
             | Some '\\', Some d ->
-                skipNext ()
+                skip ()
                 processEscapedChar d @ loop chars
             | Some c, _ -> [ c ] @ loop chars
 
         let str = charsToString (loop [])
-        let terminated = lastChar = Some quoteChar
         (str, terminated)
 
     let scanLiteralStr quoteChar =
@@ -183,7 +203,7 @@ type Lexer(fileName: string, stream: IO.TextReader) =
         | (str, false) -> makeSyntaxErr (UnterminatedLiteralStr $"{quoteChar}{str}")
 
     let scanFormatStr quoteChar =
-        skipNext () // skip quote char
+        skip () // skip quote char
 
         match scanStr quoteChar with
         | (str, true) -> makeToken (FormatStr str)
@@ -206,25 +226,27 @@ type Lexer(fileName: string, stream: IO.TextReader) =
         | None -> makeToken (SpecialIdent word)
 
     let scanComment () =
-        let chars = nextWhile (fun c -> c <> '\n')
+        let chars = [ '#' ] @ nextWhile (fun c -> c <> '\n')
         let comment = charsToString chars
-        skipNext ()
-        makeToken (Comment comment)
+        let token = makeToken (Comment comment)
+        skip ()
+        token
 
     let scanDocComment () =
-        let chars = nextWhile (fun c -> c <> '\n')
+        let chars = [ '/'; '/' ] @ nextWhile (fun c -> c <> '\n')
         let comment = charsToString chars
-        skipNext ()
-        makeToken (DocComment comment)
+        let result = makeToken (DocComment comment)
+        skip () // skip newline
+        result
 
     // API -------------------------------------------------------------
 
     /// Start and end positions of current token.
     member _.pos = (startPos, endPos)
 
-    /// Get all the tokens as a list of `Result`s. If a syntax error is
-    /// encountered, the last item will be a `SyntaxErr`; otherwise the
-    /// last item will be `EOF`.
+    /// Get all tokens at once as a list of `Result`s. If a syntax error
+    /// is encountered, the last item will be a `SyntaxErr`; otherwise
+    /// the last item will be `EOF`.
     member this.tokens() =
         let rec loop tokens =
             match this.nextToken () with
@@ -233,11 +255,11 @@ type Lexer(fileName: string, stream: IO.TextReader) =
 
         loop []
 
-    /// Get the next token. Returns `EOF` when the end of the `stream`
-    /// is reached. Returns a `SyntaxErr` when a syntax error is
+    /// Get the next token. Returns `EOF` when the input `stream` is
+    /// is depleted. Returns a `SyntaxErr` when a syntax error is
     /// encountered.
     member _.nextToken() =
-        skipWhitespace ()
+        skipContiguousSpaces ()
 
         match next (), peek () with
         | None, _ -> EOF
@@ -249,7 +271,7 @@ type Lexer(fileName: string, stream: IO.TextReader) =
             endPos <- (line, col)
 
             match c, d with
-            // 2-char Tokens ===========================================
+            // 2-character Tokens ======================================
 
             // Scopes --------------------------------------------------
             | '-', Some '>' -> skipNextMakeToken ScopeStart
@@ -257,7 +279,7 @@ type Lexer(fileName: string, stream: IO.TextReader) =
 
             // Misc ----------------------------------------------------
             | '.', Some '.' ->
-                match skipNextPeek () with
+                match skipPeek () with
                 | Some '.' -> skipNextMakeToken Ellipsis
                 | _ -> makeToken DotDot
 
@@ -285,7 +307,7 @@ type Lexer(fileName: string, stream: IO.TextReader) =
             // Doc Comment ---------------------------------------------
             | '/', Some '/' -> scanDocComment ()
 
-            // 1-char Tokens ===========================================
+            // 1-character Tokens ======================================
 
             | '\n', _ -> makeToken Newline
 
