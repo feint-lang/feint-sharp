@@ -109,21 +109,29 @@ type Lexer(fileName: string, stream: IO.TextReader) =
                 col <- col + 1u
                 Some c
 
-    let rec nextWhile predicate =
+    let nextIf predicate =
         match peek () with
-        | None -> []
+        | None -> None
         | Some c ->
             match predicate c with
-            | false -> []
-            | true ->
-                match next () with
-                | None -> []
-                | Some c -> [ c ] @ nextWhile (predicate)
+            | false -> None
+            | true -> next ()
 
-    let skip () = next () |> ignore
+    let nextWhile predicate =
+        let rec loop collector =
+            match nextIf predicate with
+            | None -> collector
+            | Some c -> loop (collector @ [ c ])
+
+        loop []
+
+    let skip () =
+        match next () with
+        | None -> false
+        | Some _ -> true
 
     let skipPeek () =
-        skip ()
+        skip () |> ignore
         peek ()
 
     let skipIf predicate =
@@ -132,16 +140,16 @@ type Lexer(fileName: string, stream: IO.TextReader) =
         | Some c ->
             match predicate c with
             | false -> false
-            | true ->
-                skip ()
-                true
+            | true -> skip ()
 
-    let rec skipWhile predicate =
-        match skipIf predicate with
-        | true -> skipWhile predicate
-        | false -> ()
+    let skipWhile predicate =
+        let rec loop count =
+            match skipIf predicate with
+            | false -> 0
+            | true -> loop (count + 1)
 
-    let skipSpace () = skipIf (fun c -> c = ' ')
+        loop 0
+
     let skipContiguousSpaces () = skipWhile (fun c -> c = ' ')
 
     // Result Constructors ---------------------------------------------
@@ -155,9 +163,9 @@ type Lexer(fileName: string, stream: IO.TextReader) =
               token = token }
         )
 
-    /// Simplifies the creation of 2-character tokens.
-    let skipNextMakeToken token =
-        skip ()
+    /// Streamlines creation of 2-character tokens.
+    let skipMakeToken token =
+        skip () |> ignore
         makeToken token
 
     let makeSyntaxErr kind =
@@ -190,7 +198,7 @@ type Lexer(fileName: string, stream: IO.TextReader) =
                 terminated <- true
                 chars
             | Some '\\', Some d ->
-                skip ()
+                skip () |> ignore
                 processEscapedChar d @ loop chars
             | Some c, _ -> [ c ] @ loop chars
 
@@ -203,7 +211,7 @@ type Lexer(fileName: string, stream: IO.TextReader) =
         | (str, false) -> makeSyntaxErr (UnterminatedLiteralStr $"{quoteChar}{str}")
 
     let scanFormatStr quoteChar =
-        skip () // skip quote char
+        skip () |> ignore // skip quote char
 
         match scanStr quoteChar with
         | (str, true) -> makeToken (FormatStr str)
@@ -225,18 +233,18 @@ type Lexer(fileName: string, stream: IO.TextReader) =
         | Some token -> makeToken token
         | None -> makeToken (SpecialIdent word)
 
-    let scanComment () =
-        let chars = [ '#' ] @ nextWhile (fun c -> c <> '\n')
+    let scanComment start =
+        let chars = start @ nextWhile (fun c -> c <> '\n')
         let comment = charsToString chars
         let token = makeToken (Comment comment)
-        skip ()
+        skip () |> ignore // skip newline
         token
 
-    let scanDocComment () =
-        let chars = [ '/'; '/' ] @ nextWhile (fun c -> c <> '\n')
+    let scanDocComment start =
+        let chars = start @ nextWhile (fun c -> c <> '\n')
         let comment = charsToString chars
         let result = makeToken (DocComment comment)
-        skip () // skip newline
+        skip () |> ignore // skip newline
         result
 
     // API -------------------------------------------------------------
@@ -259,7 +267,7 @@ type Lexer(fileName: string, stream: IO.TextReader) =
     /// is depleted. Returns a `SyntaxErr` when a syntax error is
     /// encountered.
     member _.nextToken() =
-        skipContiguousSpaces ()
+        skipContiguousSpaces () |> ignore
 
         match next (), peek () with
         | None, _ -> EOF
@@ -274,38 +282,38 @@ type Lexer(fileName: string, stream: IO.TextReader) =
             // 2-character Tokens ======================================
 
             // Scopes --------------------------------------------------
-            | '-', Some '>' -> skipNextMakeToken ScopeStart
-            | '=', Some '>' -> skipNextMakeToken FuncStart
+            | '-', Some '>' -> skipMakeToken ScopeStart
+            | '=', Some '>' -> skipMakeToken FuncStart
 
             // Misc ----------------------------------------------------
             | '.', Some '.' ->
                 match skipPeek () with
-                | Some '.' -> skipNextMakeToken Ellipsis
+                | Some '.' -> skipMakeToken Ellipsis
                 | _ -> makeToken DotDot
 
             // Unary Operators -----------------------------------------
-            | '!', Some '!' -> skipNextMakeToken BangBang
+            | '!', Some '!' -> skipMakeToken BangBang
 
             // Comparison Operators ------------------------------------
-            | '=', Some '=' -> skipNextMakeToken EqEq
-            | '!', Some '=' -> skipNextMakeToken NotEq
-            | '~', Some '~' -> skipNextMakeToken TildeTilde
-            | '!', Some '~' -> skipNextMakeToken BangTilde
+            | '=', Some '=' -> skipMakeToken EqEq
+            | '!', Some '=' -> skipMakeToken NotEq
+            | '~', Some '~' -> skipMakeToken TildeTilde
+            | '!', Some '~' -> skipMakeToken BangTilde
 
             // Logic Operators -----------------------------------------
-            | '&', Some '&' -> skipNextMakeToken And
-            | '|', Some '|' -> skipNextMakeToken Or
-            | '?', Some '?' -> skipNextMakeToken NilOr
+            | '&', Some '&' -> skipMakeToken And
+            | '|', Some '|' -> skipMakeToken Or
+            | '?', Some '?' -> skipMakeToken NilOr
 
             // Comparison Operators ------------------------------------
-            | '<', Some '=' -> skipNextMakeToken LtOrEq
-            | '>', Some '=' -> skipNextMakeToken GtOrEq
+            | '<', Some '=' -> skipMakeToken LtOrEq
+            | '>', Some '=' -> skipMakeToken GtOrEq
 
             // Assignment Operators ------------------------------------
-            | '<', Some '-' -> skipNextMakeToken Feed
+            | '<', Some '-' -> skipMakeToken Feed
 
             // Doc Comment ---------------------------------------------
-            | '/', Some '/' -> scanDocComment ()
+            | '/', Some '/' -> scanDocComment [ '/'; '/' ]
 
             // 1-character Tokens ======================================
 
@@ -352,7 +360,7 @@ type Lexer(fileName: string, stream: IO.TextReader) =
             | '$', Some f when Char.IsAsciiLetter(f) -> scanSpecialKeywordOrIdent ()
 
             // Comment -------------------------------------------------
-            | '#', _ -> scanComment ()
+            | '#', _ -> scanComment [ '#' ]
 
             // Errors --------------------------------------------------
             | _ ->
