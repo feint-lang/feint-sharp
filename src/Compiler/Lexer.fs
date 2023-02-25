@@ -88,14 +88,6 @@ type Lexer(fileName: string, stream: IO.TextReader) =
         skipNext ()
         peek ()
 
-    let nextIf predicate =
-        match peek () with
-        | Some c ->
-            match predicate c with
-            | true -> next ()
-            | false -> None
-        | None -> None
-
     let rec nextWhile predicate =
         match peek () with
         | None -> []
@@ -181,18 +173,46 @@ type Lexer(fileName: string, stream: IO.TextReader) =
         | Some token -> makeToken token
         | None -> makeToken (Ident word)
 
-    let scanSpecialKeywordOrIdent firstChar =
-        let otherChars = nextWhile (fun c -> Char.IsAsciiLetterOrDigit c || c = '_')
-        let word = charsToString (firstChar :: otherChars)
+    let scanSpecialKeywordOrIdent () =
+        let chars = nextWhile (fun c -> Char.IsAsciiLetterOrDigit c || c = '_')
+        let word = charsToString chars
 
         match keywordToken word with
         | Some token -> makeToken token
         | None -> makeToken (SpecialIdent word)
 
+    let scanComment () =
+        let chars = nextWhile (fun c -> c <> '\n')
+        let comment = charsToString chars
+        skipNext ()
+        makeToken (Comment comment)
+
+    let scanDocComment () =
+        let chars = nextWhile (fun c -> c <> '\n')
+        let comment = charsToString chars
+        skipNext ()
+        makeToken (DocComment comment)
+
     // API -------------------------------------------------------------
 
+    /// Start and end positions of current token.
     member _.pos = (startPos, endPos)
 
+    /// Get all the tokens as a list of results. If a syntax error is
+    /// encountered, the last item will be a `SyntaxErr`.
+    member this.tokens() =
+        let rec loop tokens =
+            let result = this.nextToken ()
+
+            match result with
+            | Token _ -> [ result ] @ (loop tokens)
+            | EOF -> [ EOF ]
+            | SyntaxErr _ -> [ result ]
+
+        loop []
+
+    /// Get the next token. Returns an `EOF` token when the stream
+    /// reaches EOF.
     member _.nextToken() =
         skipWhitespace ()
 
@@ -221,9 +241,6 @@ type Lexer(fileName: string, stream: IO.TextReader) =
             // Unary Operators -----------------------------------------
             | '!', Some '!' -> skipNextMakeToken BangBang
 
-            // Doc comment or floor div
-            | '/', Some '/' -> skipNextMakeToken DoubleSlash
-
             // Comparison Operators ------------------------------------
             | '=', Some '=' -> skipNextMakeToken EqEq
             | '!', Some '=' -> skipNextMakeToken NotEq
@@ -241,6 +258,9 @@ type Lexer(fileName: string, stream: IO.TextReader) =
 
             // Assignment Operators ------------------------------------
             | '<', Some '-' -> skipNextMakeToken Feed
+
+            // Doc Comment ---------------------------------------------
+            | '/', Some '/' -> scanDocComment ()
 
             // 1-char Tokens ===========================================
 
@@ -278,12 +298,14 @@ type Lexer(fileName: string, stream: IO.TextReader) =
 
             // Types ---------------------------------------------------
             | '@', _ -> makeToken Always
-            | f, _ when Char.IsDigit(f) -> scanNumber f
+            | f, _ when Char.IsAsciiDigit(f) -> scanNumber f
             | q, _ when q = '"' || q = '\'' -> scanStr q
 
             // Keywords & Identifiers ----------------------------------
             | f, _ when Char.IsAsciiLetter(f) -> scanKeywordOrIdent f
-            | '$', Some f when Char.IsAsciiLetter(f) -> scanSpecialKeywordOrIdent f
+            | '$', Some f when Char.IsAsciiLetter(f) -> scanSpecialKeywordOrIdent ()
+
+            | '#', _ -> scanComment ()
 
             // Errors --------------------------------------------------
             | _ ->
@@ -299,18 +321,13 @@ let fromFile (fileName: string) =
 
 let tokensFromText (fileName: string) (text: string) =
     let lexer = fromText fileName text
+    lexer.tokens ()
 
-    let rec loop tokens =
-        let result = lexer.nextToken ()
+let tokensFromFile (fileName: string) =
+    let lexer = fromFile fileName
+    lexer.tokens ()
 
-        match result with
-        | Token _ -> [ result ] @ (loop tokens)
-        | EOF -> [ EOF ]
-        | SyntaxErr _ -> [ result ]
-
-    loop []
-
-let formatResult fileName text result =
+let formatResult result =
     match result with
     | Token token -> formatPosToken token
     | EOF -> "EOF"

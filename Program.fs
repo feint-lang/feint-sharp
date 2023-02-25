@@ -1,4 +1,6 @@
-﻿open PowerArgs
+﻿open System
+
+open PowerArgs
 
 open Feint
 open Feint.Compiler
@@ -8,7 +10,7 @@ type Operation =
     | RunCode
     | RunFile
     | PrintCodeTokens
-    // | PrintFileTokens
+    | PrintFileTokens
     // | PrintCodeAst
     // | PrintFileAst
     | RunRepl
@@ -48,10 +50,10 @@ type Argv() =
     [<ArgShortcut("--tokens")>]
     member val tokens = false with get, set
 
-    // [<ArgDescription("Print AST instead of interpreting when running code or file")>]
-    // [<ArgShortcut("-a")>]
-    // [<ArgShortcut("--ast")>]
-    // member val ast = false with get, set
+    [<ArgDescription("Print AST instead of interpreting when running code or file")>]
+    [<ArgShortcut("-a")>]
+    [<ArgShortcut("--ast")>]
+    member val ast = false with get, set
 
     // Operations ------------------------------------------------------
 
@@ -63,9 +65,11 @@ type Argv() =
             else
                 RunCode
         elif not (isNull this.fileName) then
-            // if this.tokens then PrintFileTokens
+            if this.tokens then
+                PrintFileTokens
             // elif this.ast then PrintFileAst
-            RunFile
+            else
+                RunFile
         else
             RunRepl
 
@@ -81,18 +85,19 @@ type Argv() =
         | Interpreter.ParseErr err -> ParseErr err
         | Interpreter.InterpretErr err -> InterpretErr err
 
-    member this.printCodeTokens() =
-        let results = Lexer.tokensFromText "<code>" this.code
-
+    member _.printTokens results =
         let handle result =
-            eprintfn "%s" (Lexer.formatResult "<code>" this.code result)
+            Lexer.formatResult result |> Console.WriteLine
 
         List.iter handle results
         Success
 
-    // member this.printFileTokens() =
-    //     Driver.printTokensFromFile this.fileName
-    //     Success
+    member this.printCodeTokens() =
+        Lexer.tokensFromText "<code>" this.code |> this.printTokens
+
+
+    member this.printFileTokens() =
+        Lexer.tokensFromFile this.fileName |> this.printTokens
 
     // member this.printCodeAst() =
     //     Driver.printAstFromText this.code "<code>"
@@ -115,7 +120,7 @@ type Argv() =
             | RunCode -> this.runCode ()
             | RunFile -> this.runFile ()
             | PrintCodeTokens -> this.printCodeTokens ()
-            // | PrintFileTokens -> this.printFileTokens ()
+            | PrintFileTokens -> this.printFileTokens ()
             // | PrintCodeAst -> this.printCodeAst ()
             // | PrintFileAst -> this.printFileAst ()
             | RunRepl -> this.runRepl ()

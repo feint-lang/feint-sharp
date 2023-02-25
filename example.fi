@@ -30,6 +30,5 @@ nil ?? "x"
 
 block -> nil
 
-# TODO:
-# block ->
-#   nil
+block ->
+    nil

@@ -58,7 +58,6 @@ type Token =
     | Caret
     | Star
     | Slash
-    | DoubleSlash
     | Plus
     | Dash
     // Logic Operators -------------------------------------------------
@@ -88,7 +87,6 @@ let keywordToken word =
     | "nil" -> Some Nil
     | "true" -> Some True
     | "false" -> Some False
-    //
     | "import" -> Some Import
     | "as" -> Some As
     | "block" -> Some Block
