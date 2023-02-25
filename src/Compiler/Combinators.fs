@@ -2,59 +2,64 @@ module Feint.Compiler.Combinators
 
 open System
 
+open Errors
+open Lexer
+
 type Result<'a> =
     | Success of value: 'a
-    | Failure of message: string
+    | SyntaxErr of SyntaxErr
+    | ParseErr of ParseErr
 
-type Parser<'a> = Parser of parse: (string -> Result<'a * string>)
+type Parser<'a> = Parser of parse: (Lexer -> Result<'a>)
 
 // Entrypoint ----------------------------------------------------------
 
-let run parser input =
+let run parser lexer =
     let (Parser parse) = parser
-    parse input
+    parse lexer
 
 // Primitives ----------------------------------------------------------
 
-let matchChar c =
-    Parser(fun input ->
-        match input with
-        | null
-        | "" -> Failure "Unexpected EOF"
-        | _ ->
-            match input.[0] with
-            | c' when c' = c -> Success(c, input.[1..])
-            | d -> Failure $"Expected char '{c}'; got '{d}'")
-
-let matchCharI c = matchChar (Char.ToLower c)
+let matchToken (token: Tokens.Token) =
+    Parser(fun lexer ->
+        match lexer.nextToken () with
+        | Lexer.Token t when t.token = token -> Success t
+        | Lexer.Token t -> ParseErr(makeParseErr (ExpectedToken token))
+        | Lexer.EOF -> ParseErr(makeParseErr UnexpectedEOF)
+        | Lexer.SyntaxErr e -> SyntaxErr e)
 
 let andThen p1 p2 =
-    Parser(fun input ->
-        match run p1 input with
-        | Success(v1, input') ->
-            match run p2 input' with
-            | Success(v2, input'') -> Success((v1, v2), input'')
-            | Failure f -> Failure f
-        | Failure f -> Failure f)
+    Parser(fun lexer ->
+        match run p1 lexer with
+        | Success v1 ->
+            match run p2 lexer with
+            | Success v2 -> Success(v1, v2)
+            | SyntaxErr e -> SyntaxErr e
+            | ParseErr e -> ParseErr e
+        | SyntaxErr e -> SyntaxErr e
+        | ParseErr e -> ParseErr e)
 
 let (.>>.) = andThen
 
 let orElse p1 p2 =
-    Parser(fun input ->
-        match run p1 input with
-        | Success(v, input') -> Success(v, input')
-        | Failure _ ->
-            match run p2 input with
-            | Success(v, input') -> Success(v, input')
-            | Failure f -> Failure f)
+    Parser(fun lexer ->
+        match run p1 lexer with
+        | Success v -> Success v
+        | SyntaxErr _
+        | ParseErr _ ->
+            match run p2 lexer with
+            | Success s -> Success s
+            | SyntaxErr e -> SyntaxErr e
+            | ParseErr e -> ParseErr e)
 
 let (<|>) = orElse
 
 let map parser mapping =
-    Parser(fun input ->
-        match run parser input with
-        | Success(v, input') -> Success(mapping v, input')
-        | Failure f -> Failure f)
+    Parser(fun lexer ->
+        match run parser lexer with
+        | Success v -> Success(mapping v)
+        | SyntaxErr e -> SyntaxErr e
+        | ParseErr e -> ParseErr e)
 
 let (|>>) = map
 
@@ -66,51 +71,19 @@ let zeroOrMore x = ()
 let oneOrMore x = ()
 
 let sequence parsers =
-    Parser(fun input ->
-        let rec loop results parsers input =
+    Parser(fun lexer ->
+        let rec loop results parsers =
             match Seq.isEmpty parsers with
-            | true -> Success(results, input)
+            | true -> Success results
             | false ->
-                match run (Seq.head parsers) input with
-                | Failure f -> Failure f
-                | Success(v, input') ->
+                match run (Seq.head parsers) lexer with
+                | SyntaxErr e -> SyntaxErr e
+                | ParseErr e -> ParseErr e
+                | Success v ->
                     try
                         let tail = Seq.tail parsers
-                        loop (results @ [ v ]) (tail) input'
+                        loop (results @ [ v ]) tail
                     with :? InvalidOperationException ->
-                        Success(results, input')
+                        Success results
 
-        loop [] parsers input)
-
-// Characters ----------------------------------------------------------
-
-let anyOf chars = chars |> Seq.map matchChar |> choice
-let anyOfI chars = chars |> Seq.map matchCharI |> choice
-
-let asciiLower = anyOf [ 'a' .. 'z' ]
-let asciiUpper = anyOf [ 'A' .. 'Z' ]
-let asciiLetter = choice [ asciiLower; asciiUpper ]
-
-// Numbers -------------------------------------------------------------
-
-let zero = matchChar '0'
-let digit = anyOf [ '0' .. '9' ]
-let natural = anyOf [ '1' .. '9' ]
-let binDigit = anyOf [ '0' .. '1' ]
-let octDigit = anyOf [ '0' .. '7' ]
-let hexLetter = anyOfI [ 'a' .. 'f' ]
-let hexDigit = choice [ digit; hexLetter ]
-
-// Identifiers ---------------------------------------------------------
-
-let asciiLetterOrDigit = choice [ asciiLetter; digit ]
-
-// Keywords ------------------------------------------------------------
-
-let keyword (word: string) =
-    word |> Seq.map matchChar |> sequence |>> Seq.toArray |>> String
-
-// Strings -------------------------------------------------------------
-
-let singleQuotedString = sequence [| matchChar '\''; matchChar '\'' |]
-let doubleQuotedString = sequence [| matchChar '"'; matchChar '"' |]
+        loop [] parsers)

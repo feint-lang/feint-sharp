@@ -5,7 +5,7 @@ open System.Collections.Generic
 
 open Errors
 open LexerUtil
-open Token
+open Tokens
 
 let READ_BUF_MAX = 1024
 
@@ -25,8 +25,6 @@ type Result =
 /// literals). The `Parser` is responsible for determining whether the
 /// generated tokens represent a valid program.
 type Lexer(fileName: string, stream: IO.TextReader) =
-    let stream = stream
-
     /// Characters are read from the input `stream` into this buffer and
     /// then into a queue, which is refilled as needed when `peek` and
     /// `next` are called.
@@ -156,12 +154,7 @@ type Lexer(fileName: string, stream: IO.TextReader) =
 
     let makeToken token =
         endPos <- (line, col)
-
-        Token(
-            { startPos = startPos
-              endPos = endPos
-              token = token }
-        )
+        Token(makePosToken startPos endPos token)
 
     /// Streamlines creation of 2-character tokens.
     let skipMakeToken token =
@@ -170,12 +163,7 @@ type Lexer(fileName: string, stream: IO.TextReader) =
 
     let makeSyntaxErr kind =
         endPos <- (line, col)
-
-        SyntaxErr
-            { fileName = fileName
-              startPos = startPos
-              endPos = endPos
-              kind = kind }
+        SyntaxErr(makeSyntaxErr fileName startPos endPos kind)
 
     // Scanners --------------------------------------------------------
     //

@@ -6,10 +6,11 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Util.fs" />
+    <Compile Include="Tokens.fs" />
     <Compile Include="Errors.fs" />
-    <Compile Include="Token.fs" />
     <Compile Include="LexerUtil.fs" />
     <Compile Include="Lexer.fs" />
+    <Compile Include="Combinators.fs" />
     <Compile Include="Ast.fs" />
     <Compile Include="Parser.fs" />
     <Compile Include="Driver.fs" />

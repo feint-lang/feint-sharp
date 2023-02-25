@@ -36,9 +36,9 @@ let assertSyntaxErrEqual result startPos endPos kind =
 let ``from string, check tokens`` () =
     let lexer = makeLexer "1 + 2"
     Assert.Equal(lexer.pos, ((1u, 0u), (1u, 0u)))
-    assertTokenEqual (lexer.nextToken ()) (1u, 1u) (1u, 1u) (Token.Int(bigint 1))
-    assertTokenEqual (lexer.nextToken ()) (1u, 3u) (1u, 3u) Token.Plus
-    assertTokenEqual (lexer.nextToken ()) (1u, 5u) (1u, 5u) (Token.Int(bigint 2))
+    assertTokenEqual (lexer.nextToken ()) (1u, 1u) (1u, 1u) (Tokens.Int(bigint 1))
+    assertTokenEqual (lexer.nextToken ()) (1u, 3u) (1u, 3u) Tokens.Plus
+    assertTokenEqual (lexer.nextToken ()) (1u, 5u) (1u, 5u) (Tokens.Int(bigint 2))
     Assert.Equal(lexer.pos, ((1u, 5u), (1u, 5u)))
 
 [<Fact>]
@@ -60,14 +60,14 @@ let ``unknown character causes syntax error`` () =
 [<Fact>]
 let ``lex string`` () =
     let lexer = makeLexer "\"string\""
-    assertTokenEqual (lexer.nextToken ()) (1u, 1u) (1u, 8u) (Token.Str "string")
+    assertTokenEqual (lexer.nextToken ()) (1u, 1u) (1u, 8u) (Tokens.Str "string")
 
 [<Fact>]
 let ``lex file`` () =
     let lexer = makeLexerFromFile "example.fi"
-    assertTokenEqual (lexer.nextToken ()) (1u, 1u) (1u, 3u) Token.Nil
-    assertTokenEqual (lexer.nextToken ()) (2u, 0u) (2u, 0u) Token.Newline
-    assertTokenEqual (lexer.nextToken ()) (2u, 1u) (2u, 9u) (Token.Comment "# comment")
+    assertTokenEqual (lexer.nextToken ()) (1u, 1u) (1u, 3u) Tokens.Nil
+    assertTokenEqual (lexer.nextToken ()) (2u, 0u) (2u, 0u) Tokens.Newline
+    assertTokenEqual (lexer.nextToken ()) (2u, 1u) (2u, 9u) (Tokens.Comment "# comment")
     let remainingTokens = lexer.tokens ()
     let lastToken = List.last remainingTokens
     Assert.Equal(lastToken, EOF)

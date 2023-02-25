@@ -1,4 +1,4 @@
-module Feint.Compiler.Token
+module Feint.Compiler.Tokens
 
 type Token =
     // Whitespace ------------------------------------------------------
@@ -79,9 +79,15 @@ type Token =
     | Feed
 
 type PosToken =
+    // TODO: Add constructor?
     { startPos: (uint * uint)
       endPos: (uint * uint)
       token: Token }
+
+let makePosToken startPos endPos token =
+    { startPos = startPos
+      endPos = endPos
+      token = token }
 
 let keywordToken word =
     match word with

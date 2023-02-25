@@ -28,6 +28,7 @@
 
   <ItemGroup>
     <Compile Include="Lexer.Tests.fs" />
+    <Compile Include="Combinators.Tests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 </Project>

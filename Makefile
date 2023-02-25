@@ -10,7 +10,7 @@ run:
 
 PHONY := test
 test:
-	@dotnet test
+	@dotnet test --logger:"console;verbosity=detailed"
 
 PHONY := add-fantomas
 add-fantomas:
