@@ -11,7 +11,7 @@ let INDENT_SIZE = 4u
 let READ_BUF_MAX = 1024
 
 type Result =
-    | Token of PosToken
+    | Token of SpanToken
     | EOF
     | SyntaxErr of SyntaxErr
 
@@ -25,17 +25,16 @@ type Result =
 /// unexpected characters in the input stream and unterminated string
 /// literals). The `Parser` is responsible for determining whether the
 /// generated tokens represent a valid program.
-type Lexer(fileName: string, stream: IO.TextReader) =
+type Lexer(fileName: string, text: string option, stream: IO.TextReader) =
     /// Characters are read from the input `stream` into this buffer and
     /// then into a queue, which is refilled as needed when `peek` and
     /// `next` are called.
     let buffer = Array.zeroCreate READ_BUF_MAX
 
-    let queue = Queue<char>()
-    do queue.EnsureCapacity(READ_BUF_MAX) |> ignore
+    let charQueue = Queue<char>()
 
     // NOTE: Positions are 1-based.
-    let mutable line = 1u
+    let mutable line = 0u
     let mutable col = 0u
 
     /// Start position of the current lexeme/token.
@@ -56,12 +55,12 @@ type Lexer(fileName: string, stream: IO.TextReader) =
     /// characters from the input `stream`. Returns a flag indicating
     /// whether `queue` contains at least one character.
     let fill () =
-        if queue.Count = 0 then
+        if charQueue.Count = 0 then
             match stream.Read(buffer, 0, READ_BUF_MAX) with
             | 0 -> false
             | n ->
                 for i = 0 to n - 1 do
-                    queue.Enqueue buffer[i]
+                    charQueue.Enqueue buffer[i]
 
                 true
         else
@@ -72,8 +71,8 @@ type Lexer(fileName: string, stream: IO.TextReader) =
     let peek () =
         let c = ref '\000'
 
-        if queue.TryPeek(c) then Some(c.Value)
-        else if fill () && queue.TryPeek(c) then Some(c.Value)
+        if charQueue.TryPeek(c) then Some(c.Value)
+        else if fill () && charQueue.TryPeek(c) then Some(c.Value)
         else None
 
     /// Read next character from `queue`. Returns `None` if `queue` is
@@ -81,8 +80,8 @@ type Lexer(fileName: string, stream: IO.TextReader) =
     let read () =
         let c = ref '\000'
 
-        if queue.TryDequeue(c) then Some(c.Value)
-        else if fill () && queue.TryDequeue(c) then Some c.Value
+        if charQueue.TryDequeue(c) then Some(c.Value)
+        else if fill () && charQueue.TryDequeue(c) then Some c.Value
         else None
 
     /// Get next character. `\r\n` newlines are normalized to `\n` in
@@ -147,7 +146,7 @@ type Lexer(fileName: string, stream: IO.TextReader) =
     let skipWhile predicate =
         let rec loop count =
             match skipIf predicate with
-            | false -> 0u
+            | false -> count
             | true -> loop (count + 1u)
 
         loop 0u
@@ -168,29 +167,17 @@ type Lexer(fileName: string, stream: IO.TextReader) =
 
     let makeSyntaxErr kind =
         endPos <- (line, col)
-        SyntaxErr(makeSyntaxErr fileName startPos endPos kind)
+        SyntaxErr(makeSyntaxErr fileName text startPos endPos kind)
 
     // Scanners --------------------------------------------------------
     //
     // Scanners scan forward from the current position to produce a
     // token from one or more characters.
 
-    // TODO: implement
-    let scanNumberBase2 () =
-        makeSyntaxErr (NotImplemented "binary number scanner")
-
-    // TODO: implement
-    let scanNumberBase8 () =
-        makeSyntaxErr (NotImplemented "octal number scanner")
-
-    // TODO: implement
-    let scanNumberBase16 () =
-        makeSyntaxErr (NotImplemented "hex number scanner")
-
     let scanFloat intChars indicator =
         // Scan exponent part after `e`.
         let scanExponentPart floatChars required =
-            match nextWhile isDigit, required with
+            match nextWhile isDigitBase10, required with
             | [], true ->
                 makeSyntaxErr (InvalidFloat "exponent must contain at least one digit")
             | [], false ->
@@ -203,7 +190,7 @@ type Lexer(fileName: string, stream: IO.TextReader) =
         // Scan fractional part after decimal point then scan for
         // optional exponent part.
         let scanFractionalPart intPart =
-            match nextWhile isDigit with
+            match nextWhile isDigitBase10 with
             | [] ->
                 let msg = "decimal point must be followed by at least one digit"
                 makeSyntaxErr (InvalidFloat msg)
@@ -213,31 +200,47 @@ type Lexer(fileName: string, stream: IO.TextReader) =
 
         match indicator with
         | '.' -> scanFractionalPart intChars
-        | ('e' | 'E') -> scanExponentPart intChars true
+        | 'e' -> scanExponentPart intChars true
         // XXX: The fallback case is really an internal error.
         | _ -> makeSyntaxErr (InvalidFloat "expected decimal point or E")
 
-    let scanNumberBase10 firstDigit =
-        let intChars = firstDigit :: nextWhile isDigit
+    let scanBase10 firstDigit =
+        let intChars = firstDigit :: nextWhile isDigitBase10
 
         match nextIf isFloatIndicator with
         | Some indicator -> scanFloat intChars indicator
         | _ -> makeToken (intFromChars intChars)
 
+    let scanBase prefix =
+        let makeInt digitPredicate =
+            match nextWhile digitPredicate with
+            | [] -> makeSyntaxErr (InvalidNumber "expected digits following prefix")
+            | digits ->
+                let token =
+                    match prefix with
+                    | 'x' -> intFromHexChars digits
+                    | _ ->
+                        // XXX: This will fail if value is outside int64 range
+                        let chars = [ '0'; prefix ] @ digits
+                        let value = chars |> stringFromChars |> int64 |> bigint
+                        Int value
+
+                makeToken token
+
+        match prefix with
+        | 'b' -> makeInt isDigitBase2
+        | 'o' -> makeInt isDigitBase8
+        | 'x' -> makeInt isDigitBase16
+        | d -> makeSyntaxErr (InvalidIntPrefix d)
+
     let scanNumber firstDigit =
         match firstDigit, peek () with
-        | '0', Some('b' | 'B') ->
+        | '0', Some d when isDigitBase10 d ->
+            makeSyntaxErr (InvalidNumber "leading zeros not allowed")
+        | '0', Some d when isAsciiLetter d ->
             skip () |> ignore
-            scanNumberBase2 ()
-        | '0', Some('o' | 'O') ->
-            skip () |> ignore
-            scanNumberBase8 ()
-        | '0', Some('x' | 'X') ->
-            skip () |> ignore
-            scanNumberBase16 ()
-        | '0', Some d when isDigit d ->
-            makeSyntaxErr (InvalidNumber "only one leading 0 is allowed")
-        | _ -> scanNumberBase10 firstDigit
+            scanBase d
+        | _ -> scanBase10 firstDigit
 
     let scanStr quoteChar =
         let mutable terminated = false
@@ -253,7 +256,7 @@ type Lexer(fileName: string, stream: IO.TextReader) =
                 processEscapedChar d @ loop chars
             | Some c, _ -> [ c ] @ loop chars
 
-        let str = loop [] |> charsToString
+        let str = loop [] |> stringFromChars
         (str, terminated)
 
     let scanLiteralStr quoteChar =
@@ -269,7 +272,7 @@ type Lexer(fileName: string, stream: IO.TextReader) =
         | str, false -> makeSyntaxErr (UnterminatedFormatStr $"${quoteChar}{str}")
 
     let scanKeywordOrIdent firstChar =
-        let word = charsToString (firstChar :: nextWhile isIdentChar)
+        let word = stringFromChars (firstChar :: nextWhile isIdentChar)
 
         match keywordToken word with
         | Some token -> makeToken token
@@ -277,39 +280,27 @@ type Lexer(fileName: string, stream: IO.TextReader) =
 
     let scanSpecialKeywordOrIdent () =
         let chars = nextWhile isIdentChar
-        let word = charsToString chars
+        let word = stringFromChars chars
 
         match keywordToken word with
         | Some token -> makeToken token
         | None -> makeToken (SpecialIdent word)
 
+    // Comments --------------------------------------------------------
+
     let scanComment start =
         let chars = start @ nextWhile isNotNewline
-        let comment = charsToString chars
+        let comment = stringFromChars chars
         let token = makeToken (Comment comment)
-        skip () |> ignore // skip newline
         token
 
     let scanDocComment start =
         let chars = start @ nextWhile isNotNewline
-        let comment = charsToString chars
+        let comment = stringFromChars chars
         let result = makeToken (DocComment comment)
-        skip () |> ignore // skip newline
         result
 
     // Indentation & Whitespace ----------------------------------------
-
-    /// Determine whether a new indent is expected. A new indent is
-    /// expected at the beginning of a line following a block start
-    /// token.
-    let expectNewIndent () =
-        match col, lastToken with
-        | 0u, Some last ->
-            match last with
-            | ScopeStart
-            | FuncStart -> true
-            | _ -> false
-        | _ -> false
 
     /// Called when a newline is encountered.
     ///
@@ -320,53 +311,54 @@ type Lexer(fileName: string, stream: IO.TextReader) =
     let handleNewline () =
         let spaceCount = skipSpaces ()
 
+        if spaceCount > 0u then
+            startPos <- (line, col - spaceCount + 1u)
+
+        let expectNewIndent () =
+            match lastToken with
+            | Some(ScopeStart | FuncStart) -> true
+            | _ -> false
+
+        let getIndentLevel () =
+            match spaceCount % INDENT_SIZE = 0u with
+            | true -> Some(spaceCount / INDENT_SIZE)
+            | false -> None
+
         match peek () with
-        | Some '\n'
-        | Some '#' -> makeToken Whitespace
+        // Line is all whitespace
+        | Some '\n' -> None
+        | None -> None
+        // Line is comment-only (which may be preceded by whitespace)
+        | Some '#' -> None
+        // Line contains other tokens--check & maybe update indent level
         | _ ->
-            if spaceCount % INDENT_SIZE <> 0u then
-                makeSyntaxErr (InvalidIndent spaceCount)
-            elif expectNewIndent () then
-                let actualLevel = (spaceCount / INDENT_SIZE)
-                let expectedLevel = indentLevel + 1u
-
-                if actualLevel <> expectedLevel then
-                    makeSyntaxErr (ExpectedIndent actualLevel)
-                else
-                    makeToken Whitespace
+            if expectNewIndent () then
+                match getIndentLevel () with
+                | None -> Some(makeSyntaxErr (InvalidIndent spaceCount))
+                | Some newLevel when newLevel = indentLevel + 1u ->
+                    indentLevel <- newLevel
+                    None
+                | Some newLevel -> Some(makeSyntaxErr (ExpectedIndent newLevel))
             else
-                makeToken Whitespace
+                match getIndentLevel () with
+                | None ->
+                    let err =
+                        match lastToken with
+                        | Some _ -> InvalidIndent spaceCount
+                        // XXX: Special case for first line of code
+                        | None -> UnexpectedWhitespace
 
-    /// Handle non-indentation whitespace between tokens.
-    let handleWhitespace () =
-        skipSpaces () |> ignore
+                    Some(makeSyntaxErr err)
+                | Some newLevel when newLevel < indentLevel ->
+                    indentLevel <- newLevel
+                    None
+                | Some newLevel when newLevel > indentLevel ->
+                    Some(makeSyntaxErr (UnexpectedIndent newLevel))
+                | _ -> None
 
-        match startPos with
-        | (1u, 0u) -> makeSyntaxErr (UnexpectedIndent)
-        | _ -> makeToken Whitespace
+    // Main Scanner ----------------------------------------------------
 
-    // API -------------------------------------------------------------
-
-    /// Start and end positions of current token.
-    member _.pos = (startPos, endPos)
-
-    /// Get all tokens at once as a list of `Result`s. If a syntax error
-    /// is encountered, the last item will be a `SyntaxErr`; otherwise
-    /// the last item will be `EOF`.
-    member this.tokens() =
-        let rec loop tokens =
-            match this.nextToken () with
-            | Token _ as result -> [ result ] @ (loop tokens)
-            | result -> [ result ]
-
-        loop []
-
-    /// Get the next token. Returns `EOF` when the input `stream` is
-    /// is depleted. Returns a `SyntaxErr` when a syntax error is
-    /// encountered.
-    member _.nextToken() =
-        handleWhitespace () |> ignore
-
+    let rec scan () =
         match next (), peek () with
         | None, _ ->
             indentLevel <- 0u
@@ -379,8 +371,15 @@ type Lexer(fileName: string, stream: IO.TextReader) =
             endPos <- (line, col)
 
             match c, d with
-            | '\n', _ -> handleNewline ()
-            | ' ', _ -> handleWhitespace ()
+            | '\n', _ ->
+                match handleNewline () with
+                | Some result -> result
+                | None -> scan ()
+
+            // Non-indentation whitespace between tokens.
+            | ' ', _ ->
+                skipSpaces () |> ignore
+                scan ()
 
             // 2-character Tokens ======================================
 
@@ -469,11 +468,41 @@ type Lexer(fileName: string, stream: IO.TextReader) =
                 | '\t' -> makeSyntaxErr Tab
                 | unhandled -> makeSyntaxErr (UnhandledChar unhandled)
 
+    // Initialization --------------------------------------------------
+
+    do
+        charQueue.EnsureCapacity(READ_BUF_MAX) |> ignore
+
+        // Always start with a newline to ensure consistent handling of
+        // the first line of code.
+        charQueue.Enqueue '\n'
+
+    // API -------------------------------------------------------------
+
+    /// Span of current token--start and end positions.
+    member _.span = (startPos, endPos)
+
+    /// Get all tokens at once as a list of `Result`s. If a syntax error
+    /// is encountered, the last item will be a `SyntaxErr`; otherwise
+    /// the last item will be `EOF`.
+    member this.tokens() =
+        let rec loop tokens =
+            match this.nextToken () with
+            | Token _ as result -> [ result ] @ (loop tokens)
+            | result -> [ result ]
+
+        loop []
+
+    /// Get the next token. Returns `EOF` when the input `stream` is
+    /// is depleted. Returns a `SyntaxErr` when a syntax error is
+    /// encountered.
+    member this.nextToken() = scan ()
+
 let fromText (fileName: string) (text: string) =
-    Lexer(fileName, new IO.StringReader(text))
+    Lexer(fileName, Some text, new IO.StringReader(text))
 
 let fromFile (fileName: string) =
-    Lexer(fileName, new IO.StreamReader(fileName))
+    Lexer(fileName, None, new IO.StreamReader(fileName))
 
 let tokensFromText (fileName: string) (text: string) =
     let lexer = fromText fileName text

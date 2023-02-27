@@ -1,27 +1,32 @@
 module Feint.Compiler.Errors
 
-open Feint.Compiler.Tokens
+open System
+
+open Tokens
+open LexerUtil
 
 type SyntaxErrKind =
     | NotImplemented of string // placeholder
+    | UnexpectedWhitespace
     // Characters
     | Tab
     | UnhandledChar of char
     // Indentation
     | ExpectedIndent of level: uint
-    | UnexpectedIndent
+    | UnexpectedIndent of level: uint
     | InvalidIndent of count: uint
     // Numbers
     | InvalidNumber of msg: string
     | InvalidFloat of msg: string
+    | InvalidIntPrefix of prefix: char
     // Strings
     | UnterminatedLiteralStr of string
     | UnterminatedFormatStr of string
 
 type SyntaxErr =
     { fileName: string
-      startPos: uint * uint
-      endPos: uint * uint
+      text: string option
+      span: (uint * uint) * (uint * uint)
       kind: SyntaxErrKind }
 
 type ParseErrKind =
@@ -31,44 +36,71 @@ type ParseErrKind =
 // TODO: Add file name and positions
 type ParseErr = { kind: ParseErrKind }
 
-let makeSyntaxErr fileName startPos endPos kind : SyntaxErr =
+let makeSyntaxErr fileName text startPos endPos kind : SyntaxErr =
     { fileName = fileName
-      startPos = startPos
-      endPos = endPos
+      text = text
+      span = (startPos, endPos)
       kind = kind }
 
 let makeParseErr kind : ParseErr = { kind = kind }
 
 let formatSyntaxErrKind (kind: SyntaxErrKind) =
     match kind with
-    | NotImplemented msg -> $"not implemented: {msg}"
+    | NotImplemented msg -> $"Not implemented: {msg}"
+    | UnexpectedWhitespace -> "Unexpected whitespace"
     // Characters
     | Tab -> "TAB cannot be used for indentation or whitespace"
-    | UnhandledChar c -> $"unhandled character: {c}"
+    | UnhandledChar c -> $"Unhandled character: {c}"
     // Indentation
-    | ExpectedIndent level -> $"expected indent level {level}"
-    | UnexpectedIndent -> "unexpected indent"
+    | ExpectedIndent level -> $"Expected indent to level {level}"
+    | UnexpectedIndent level -> $"Unexpected indent to level {level}"
     | InvalidIndent count ->
         let ess = if count = 1u then "" else "s"
-        $"invalid indent of {count} space{ess} (should be a multiple of 4)"
+        $"Invalid indent of {count} space{ess} (should be a multiple of 4)"
     // Numbers
-    | InvalidNumber msg -> $"invalid number: {msg}"
-    | InvalidFloat msg -> $"invalid float: {msg}"
+    | InvalidNumber msg -> $"Invalid number: {msg}"
+    | InvalidFloat msg -> $"Invalid float: {msg}"
+    | InvalidIntPrefix prefix -> $"Invalid integer prefix: 0{prefix}"
     // Strings
-    | UnterminatedLiteralStr s -> $"unterminated string literal: {s}"
-    | UnterminatedFormatStr s -> $"unterminated format string: {s}"
+    | UnterminatedLiteralStr s -> $"Unterminated string: {s}"
+    | UnterminatedFormatStr s -> $"Unterminated format string: {s}"
 
-// TODO: Show line and highlight error range
 let formatSyntaxErr (err: SyntaxErr) =
     let { SyntaxErr.kind = kind
           fileName = fileName
-          startPos = (sLine, sCol)
-          endPos = (eLine, eCol) } =
+          text = maybeText
+          span = ((sLine, sCol), (_, eCol)) } =
         err
 
-    let kind = formatSyntaxErrKind kind
-    let msg = $"Syntax error in '{fileName}' on line {sLine} at column {sCol}: {kind}"
-    msg
+    let stream: IO.TextReader =
+        match maybeText with
+        | Some text -> new IO.StringReader(text)
+        | None -> new IO.StreamReader(fileName)
+
+    let mutable lineNo = 0u
+    let mutable sourceLine = "<line not found>"
+
+    while lineNo <> sLine do
+        sourceLine <- stream.ReadLine()
+        lineNo <- lineNo + 1u
+
+    let width = int (sCol - 1u)
+    let space = Array.create width ' ' |> stringFromChars
+
+    let width = int (eCol - sCol + 1u)
+    let indicator = Array.create width '^' |> stringFromChars
+
+    let lines =
+        [ $"Syntax error in '{fileName}' on line {sLine} at column {sCol}:"
+          ""
+          " |"
+          $" | {sourceLine}"
+          $" | {space}{indicator}"
+          " |"
+          ""
+          formatSyntaxErrKind kind ]
+
+    String.Join("\n", lines)
 
 let formatParseErrKind (kind: ParseErrKind) =
     match kind with

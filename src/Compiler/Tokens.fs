@@ -1,10 +1,11 @@
 module Feint.Compiler.Tokens
 
+open System.Globalization
+
 open LexerUtil
 
 type Token =
-    // Whitespace ------------------------------------------------------
-    | Whitespace
+    | EndOfStatement
     // Comments --------------------------------------------------------
     | Comment of string
     | DocComment of string
@@ -80,19 +81,24 @@ type Token =
     | EOF
 
 let intFromChars chars =
-    charsToString chars |> bigint.Parse |> Int
+    stringFromChars chars |> bigint.Parse |> Int
 
-let floatFromChars chars = charsToString chars |> float |> Float
+let intFromHexChars chars =
+    // NOTE: The leading 0 is necessary to avoid the string being
+    //       parsed as negative when the leading char is 8-F.
+    let digits = stringFromChars ([ '0' ] @ chars)
+    let value = bigint.Parse(digits, NumberStyles.AllowHexSpecifier)
+    Int value
 
-type PosToken =
-    // TODO: Add constructor?
-    { startPos: uint * uint
-      endPos: uint * uint
+let floatFromChars chars = stringFromChars chars |> float |> Float
+
+/// Token with its span in the source stream.
+type SpanToken =
+    { span: (uint * uint) * (uint * uint)
       token: Token }
 
 let makePosToken startPos endPos token =
-    { startPos = startPos
-      endPos = endPos
+    { span = (startPos, endPos)
       token = token }
 
 let keywordToken word =
@@ -118,9 +124,6 @@ let keywordToken word =
 let formatToken token = $"{token}"
 
 let formatPosToken token =
-    let { startPos = (sLine, sCol)
-          endPos = (eLine, eCol)
-          token = token } =
-        token
-
+    let { span = span; token = token } = token
+    let (sLine, sCol), (eLine, eCol) = span
     $"{sLine}:{sCol} -> {eLine}:{eCol} = {formatToken token}"

@@ -1,13 +1,19 @@
 module Feint.Compiler.LexerUtil
 
-let charsToString chars = new string (chars |> Seq.toArray)
+open System
 
-let isAscii c = System.Char.IsAsciiLetterOrDigit c
+let stringFromChars chars = new string (chars |> Seq.toArray)
+
+let isAscii c = Char.IsAsciiLetterOrDigit c
+let isAsciiLetter c = Char.IsAsciiLetter c
 let isIdentChar c = isAscii c || c = '_'
 
-let isDigit c = System.Char.IsAsciiDigit c
-let isHexDigit c = System.Char.IsAsciiHexDigit c
-let isFloatIndicator c = c = '.' || c = 'e' || c = 'E'
+let isDigitBase2 c = [| '0' .. '1' |] |> Array.contains c
+let isDigitBase8 c = [| '0' .. '7' |] |> Array.contains c
+let isDigitBase10 c = Char.IsAsciiDigit c
+let isDigitBase16 c = Char.IsAsciiHexDigit c
+
+let isFloatIndicator c = [| '.'; 'e' |] |> Array.contains c
 
 let isDot c = c = '.'
 let isNotNewline c = c <> '\n'
