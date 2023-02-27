@@ -7,6 +7,7 @@ open Errors
 open LexerUtil
 open Tokens
 
+let INDENT_SIZE = 4u
 let READ_BUF_MAX = 1024
 
 type Result =
@@ -42,6 +43,9 @@ type Lexer(fileName: string, stream: IO.TextReader) =
 
     /// End position of the current lexeme/token.
     let mutable endPos = (line, col)
+
+    let mutable lastToken: Token option = None
+    let mutable indentLevel = 0u
 
     /// Action performed when a newline is encountered.
     let newLine () =
@@ -143,17 +147,18 @@ type Lexer(fileName: string, stream: IO.TextReader) =
     let skipWhile predicate =
         let rec loop count =
             match skipIf predicate with
-            | false -> 0
-            | true -> loop (count + 1)
+            | false -> 0u
+            | true -> loop (count + 1u)
 
-        loop 0
+        loop 0u
 
-    let skipContiguousSpaces () = skipWhile (fun c -> c = ' ')
+    let skipSpaces () = skipWhile (fun c -> c = ' ')
 
     // Result Constructors ---------------------------------------------
 
     let makeToken token =
         endPos <- (line, col)
+        lastToken <- Some token
         Token(makePosToken startPos endPos token)
 
     /// Streamlines creation of 2-character tokens.
@@ -170,11 +175,69 @@ type Lexer(fileName: string, stream: IO.TextReader) =
     // Scanners scan forward from the current position to produce a
     // token from one or more characters.
 
-    // TODO: Handle floats
+    // TODO: implement
+    let scanNumberBase2 () =
+        makeSyntaxErr (NotImplemented "binary number scanner")
+
+    // TODO: implement
+    let scanNumberBase8 () =
+        makeSyntaxErr (NotImplemented "octal number scanner")
+
+    // TODO: implement
+    let scanNumberBase16 () =
+        makeSyntaxErr (NotImplemented "hex number scanner")
+
+    let scanFloat intChars indicator =
+        // Scan exponent part after `e`.
+        let scanExponentPart floatChars required =
+            match nextWhile isDigit, required with
+            | [], true ->
+                makeSyntaxErr (InvalidFloat "exponent must contain at least one digit")
+            | [], false ->
+                let chars = floatChars
+                makeToken (floatFromChars chars)
+            | expPart, _ ->
+                let chars = floatChars @ [ 'e' ] @ expPart
+                makeToken (floatFromChars chars)
+
+        // Scan fractional part after decimal point then scan for
+        // optional exponent part.
+        let scanFractionalPart intPart =
+            match nextWhile isDigit with
+            | [] ->
+                let msg = "decimal point must be followed by at least one digit"
+                makeSyntaxErr (InvalidFloat msg)
+            | fractionalPart ->
+                let floatChars = intPart @ [ '.' ] @ fractionalPart
+                scanExponentPart floatChars false
+
+        match indicator with
+        | '.' -> scanFractionalPart intChars
+        | ('e' | 'E') -> scanExponentPart intChars true
+        // XXX: The fallback case is really an internal error.
+        | _ -> makeSyntaxErr (InvalidFloat "expected decimal point or E")
+
+    let scanNumberBase10 firstDigit =
+        let intChars = firstDigit :: nextWhile isDigit
+
+        match nextIf isFloatIndicator with
+        | Some indicator -> scanFloat intChars indicator
+        | _ -> makeToken (intFromChars intChars)
+
     let scanNumber firstDigit =
-        let otherDigits = nextWhile (fun c -> c >= '0' && c <= '9')
-        let digits = charsToString (firstDigit :: otherDigits)
-        makeToken (Int(bigint.Parse digits))
+        match firstDigit, peek () with
+        | '0', Some('b' | 'B') ->
+            skip () |> ignore
+            scanNumberBase2 ()
+        | '0', Some('o' | 'O') ->
+            skip () |> ignore
+            scanNumberBase8 ()
+        | '0', Some('x' | 'X') ->
+            skip () |> ignore
+            scanNumberBase16 ()
+        | '0', Some d when isDigit d ->
+            makeSyntaxErr (InvalidNumber "only one leading 0 is allowed")
+        | _ -> scanNumberBase10 firstDigit
 
     let scanStr quoteChar =
         let mutable terminated = false
@@ -190,7 +253,7 @@ type Lexer(fileName: string, stream: IO.TextReader) =
                 processEscapedChar d @ loop chars
             | Some c, _ -> [ c ] @ loop chars
 
-        let str = charsToString (loop [])
+        let str = loop [] |> charsToString
         (str, terminated)
 
     let scanLiteralStr quoteChar =
@@ -206,15 +269,14 @@ type Lexer(fileName: string, stream: IO.TextReader) =
         | str, false -> makeSyntaxErr (UnterminatedFormatStr $"${quoteChar}{str}")
 
     let scanKeywordOrIdent firstChar =
-        let otherChars = nextWhile (fun c -> Char.IsAsciiLetterOrDigit c || c = '_')
-        let word = charsToString (firstChar :: otherChars)
+        let word = charsToString (firstChar :: nextWhile isIdentChar)
 
         match keywordToken word with
         | Some token -> makeToken token
         | None -> makeToken (Ident word)
 
     let scanSpecialKeywordOrIdent () =
-        let chars = nextWhile (fun c -> Char.IsAsciiLetterOrDigit c || c = '_')
+        let chars = nextWhile isIdentChar
         let word = charsToString chars
 
         match keywordToken word with
@@ -222,18 +284,66 @@ type Lexer(fileName: string, stream: IO.TextReader) =
         | None -> makeToken (SpecialIdent word)
 
     let scanComment start =
-        let chars = start @ nextWhile (fun c -> c <> '\n')
+        let chars = start @ nextWhile isNotNewline
         let comment = charsToString chars
         let token = makeToken (Comment comment)
         skip () |> ignore // skip newline
         token
 
     let scanDocComment start =
-        let chars = start @ nextWhile (fun c -> c <> '\n')
+        let chars = start @ nextWhile isNotNewline
         let comment = charsToString chars
         let result = makeToken (DocComment comment)
         skip () |> ignore // skip newline
         result
+
+    // Indentation & Whitespace ----------------------------------------
+
+    /// Determine whether a new indent is expected. A new indent is
+    /// expected at the beginning of a line following a block start
+    /// token.
+    let expectNewIndent () =
+        match col, lastToken with
+        | 0u, Some last ->
+            match last with
+            | ScopeStart
+            | FuncStart -> true
+            | _ -> false
+        | _ -> false
+
+    /// Called when a newline is encountered.
+    ///
+    /// - Handles blank and comment-only lines
+    /// - Checks whether a new indent is expected
+    /// - Validates indent
+    /// - Decreases indent level if a dedent is detected
+    let handleNewline () =
+        let spaceCount = skipSpaces ()
+
+        match peek () with
+        | Some '\n'
+        | Some '#' -> makeToken Whitespace
+        | _ ->
+            if spaceCount % INDENT_SIZE <> 0u then
+                makeSyntaxErr (InvalidIndent spaceCount)
+            elif expectNewIndent () then
+                let actualLevel = (spaceCount / INDENT_SIZE)
+                let expectedLevel = indentLevel + 1u
+
+                if actualLevel <> expectedLevel then
+                    makeSyntaxErr (ExpectedIndent actualLevel)
+                else
+                    makeToken Whitespace
+            else
+                makeToken Whitespace
+
+    /// Handle non-indentation whitespace between tokens.
+    let handleWhitespace () =
+        skipSpaces () |> ignore
+
+        match startPos with
+        | (1u, 0u) -> makeSyntaxErr (UnexpectedIndent)
+        | _ -> makeToken Whitespace
 
     // API -------------------------------------------------------------
 
@@ -255,10 +365,12 @@ type Lexer(fileName: string, stream: IO.TextReader) =
     /// is depleted. Returns a `SyntaxErr` when a syntax error is
     /// encountered.
     member _.nextToken() =
-        skipContiguousSpaces () |> ignore
+        handleWhitespace () |> ignore
 
         match next (), peek () with
-        | None, _ -> EOF
+        | None, _ ->
+            indentLevel <- 0u
+            EOF
         | Some c, d ->
             startPos <- (line, col)
 
@@ -267,6 +379,9 @@ type Lexer(fileName: string, stream: IO.TextReader) =
             endPos <- (line, col)
 
             match c, d with
+            | '\n', _ -> handleNewline ()
+            | ' ', _ -> handleWhitespace ()
+
             // 2-character Tokens ======================================
 
             // Scopes --------------------------------------------------
@@ -305,8 +420,6 @@ type Lexer(fileName: string, stream: IO.TextReader) =
 
             // 1-character Tokens ======================================
 
-            | '\n', _ -> makeToken Newline
-
             // Misc ----------------------------------------------------
             | ':', _ -> makeToken Colon
             | ',', _ -> makeToken Comma
@@ -340,8 +453,8 @@ type Lexer(fileName: string, stream: IO.TextReader) =
             // Types ---------------------------------------------------
             | '@', _ -> makeToken Always
             | f, _ when Char.IsAsciiDigit(f) -> scanNumber f
-            | q, _ when q = '"' || q = '\'' -> scanLiteralStr q
-            | '$', Some q when q = '"' || q = '\'' -> scanFormatStr q
+            | ('"' | '\'') as q, _ -> scanLiteralStr q
+            | '$', Some('"' | '\'' as q) -> scanFormatStr q
 
             // Keywords & Identifiers ----------------------------------
             | f, _ when Char.IsAsciiLetter(f) -> scanKeywordOrIdent f

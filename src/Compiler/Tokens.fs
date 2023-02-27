@@ -1,11 +1,10 @@
 module Feint.Compiler.Tokens
 
+open LexerUtil
+
 type Token =
     // Whitespace ------------------------------------------------------
-    | Newline
-    | Indent of int
-    | Dedent
-    | EOF
+    | Whitespace
     // Comments --------------------------------------------------------
     | Comment of string
     | DocComment of string
@@ -77,6 +76,13 @@ type Token =
     // Assignment Operators --------------------------------------------
     | Eq
     | Feed
+
+    | EOF
+
+let intFromChars chars =
+    charsToString chars |> bigint.Parse |> Int
+
+let floatFromChars chars = charsToString chars |> float |> Float
 
 type PosToken =
     // TODO: Add constructor?

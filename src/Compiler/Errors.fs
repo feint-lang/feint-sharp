@@ -3,8 +3,18 @@ module Feint.Compiler.Errors
 open Feint.Compiler.Tokens
 
 type SyntaxErrKind =
+    | NotImplemented of string // placeholder
+    // Characters
     | Tab
     | UnhandledChar of char
+    // Indentation
+    | ExpectedIndent of level: uint
+    | UnexpectedIndent
+    | InvalidIndent of count: uint
+    // Numbers
+    | InvalidNumber of msg: string
+    | InvalidFloat of msg: string
+    // Strings
     | UnterminatedLiteralStr of string
     | UnterminatedFormatStr of string
 
@@ -31,8 +41,20 @@ let makeParseErr kind : ParseErr = { kind = kind }
 
 let formatSyntaxErrKind (kind: SyntaxErrKind) =
     match kind with
+    | NotImplemented msg -> $"not implemented: {msg}"
+    // Characters
     | Tab -> "TAB cannot be used for indentation or whitespace"
     | UnhandledChar c -> $"unhandled character: {c}"
+    // Indentation
+    | ExpectedIndent level -> $"expected indent level {level}"
+    | UnexpectedIndent -> "unexpected indent"
+    | InvalidIndent count ->
+        let ess = if count = 1u then "" else "s"
+        $"invalid indent of {count} space{ess} (should be a multiple of 4)"
+    // Numbers
+    | InvalidNumber msg -> $"invalid number: {msg}"
+    | InvalidFloat msg -> $"invalid float: {msg}"
+    // Strings
     | UnterminatedLiteralStr s -> $"unterminated string literal: {s}"
     | UnterminatedFormatStr s -> $"unterminated format string: {s}"
 
