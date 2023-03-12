@@ -128,14 +128,6 @@ type Argv() =
 
 [<EntryPoint>]
 let main argv =
-    // XXX: Required to avoid exception due to BackgroundColor and
-    //      ForegroundColor not being set on Unix platforms.
-    if int Console.BackgroundColor = -1 then
-        Console.BackgroundColor <- ConsoleColor.Black
-
-    if int Console.ForegroundColor = -1 then
-        Console.ForegroundColor <- ConsoleColor.White
-
     try
         let result = Args.InvokeMain<Argv>(argv)
 

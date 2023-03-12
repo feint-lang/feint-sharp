@@ -22,7 +22,8 @@ let run parser lexer =
 
 let matchToken token =
     Parser(fun lexer ->
-        match lexer.nextToken () with
+        match lexer.next () with
+        | Continue -> failwith "Lexer.next() should not emit Continue"
         | Token posToken when posToken.token = token -> Success posToken
         | Token _ -> ParseErr(makeParseErr (ExpectedToken token))
         | EOF -> ParseErr(makeParseErr UnexpectedEOF)

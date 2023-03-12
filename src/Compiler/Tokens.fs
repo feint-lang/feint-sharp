@@ -12,6 +12,7 @@ type Token =
     // Scopes ----------------------------------------------------------
     | ScopeStart
     | FuncStart
+    | ScopeEnd
     // Misc ------------------------------------------------------------
     | Colon
     | Comma
@@ -77,8 +78,6 @@ type Token =
     // Assignment Operators --------------------------------------------
     | Eq
     | Feed
-
-    | EOF
 
 let intFromChars chars =
     stringFromChars chars |> bigint.Parse |> Int
