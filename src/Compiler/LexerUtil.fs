@@ -18,6 +18,9 @@ let isFloatIndicator c = [| '.'; 'e' |] |> Array.contains c
 let isDot c = c = '.'
 let isNotNewline c = c <> '\n'
 
+let isCommentIndicator c = c = '#'
+let isDocCommentIndicator c = c = ';'
+
 let processEscapedChar (d: char) =
     match d with
     | '\\' -> [ '\\' ] // backslash

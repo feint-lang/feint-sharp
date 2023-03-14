@@ -11,6 +11,14 @@ type SyntaxErrKind =
     // Characters
     | Tab
     | UnhandledChar of char
+    // Groupings
+    | MismatchedBracket of
+        openChar: char *
+        openPos: Pos *
+        expectedCloseChar: char *
+        actualCloseChar: char *
+        closePos: Pos
+    | UnmatchedClosingBracket of closeChar: char
     // Indentation
     | ExpectedIndent of level: uint
     | UnexpectedIndent of level: uint
@@ -26,7 +34,7 @@ type SyntaxErrKind =
 type SyntaxErr =
     { fileName: string
       text: string option
-      span: (uint * uint) * (uint * uint)
+      span: Span
       kind: SyntaxErrKind }
 
 type ParseErrKind =
@@ -51,6 +59,12 @@ let formatSyntaxErrKind (kind: SyntaxErrKind) =
     // Characters
     | Tab -> "TAB cannot be used for indentation or whitespace"
     | UnhandledChar c -> $"Unhandled character: {c}"
+    // Groupings
+    | MismatchedBracket(openChar, openPos, expectedCloseChar, actualCloseChar, closePos) ->
+        let (openLine, openCol) = openPos
+        let (closeLine, closeCol) = closePos
+        $"Mismatched bracket: expected closing {expectedCloseChar} at {closeLine}:{closeCol} to match opening {openChar} at {openLine}:{openCol}; got {actualCloseChar}"
+    | UnmatchedClosingBracket c -> $"Unmatched closing bracket: {c}"
     // Indentation
     | ExpectedIndent level -> $"Expected indent to level {level}"
     | UnexpectedIndent level -> $"Unexpected indent to level {level}"

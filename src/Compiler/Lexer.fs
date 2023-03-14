@@ -18,15 +18,18 @@ type Result =
 
 /// The `Lexer` converts a `stream` of chars to tokens. These tokens can
 /// be retrieved by repeatedly calling the `next` method until an `EOF`
-/// or `SyntaxErr` result is returned. The `tokens` method can be used
-/// to get all the tokens as a list of `Result`s for use in tests.
+/// or `SyntaxErr` result is returned. The `all` method can be used to
+/// get all the tokens as a list of `Result`s for use in tests.
 ///
 /// The `Lexer` is relatively simple, only concerning itself with
 /// generating tokens, handling indents/dedents (since these take the
 /// place of explicit block start/end tokens), and reporting simple
 /// syntax errors. The `Parser` is responsible for determining whether
 /// the generated tokens represent a valid program.
-type Lexer(fileName: string, text: string option, stream: IO.TextReader) =
+///
+/// The `fileName` and `text` properties are only used when constructing
+/// errors in order to create more informative error messages.
+type Lexer(stream: IO.TextReader, fileName: string, text: string option) =
     /// Characters are read from the input `stream` into this buffer and
     /// then into a queue, which is refilled as needed when `peek` and
     /// `next` are called.
@@ -34,6 +37,8 @@ type Lexer(fileName: string, text: string option, stream: IO.TextReader) =
 
     /// Queue of characters filled from stream as needed (see `fill`).
     let charQueue = Queue<char>()
+
+    let bracketStack = Stack<char * (Pos)>()
 
     // NOTE: Positions are 1-based.
     let mutable line = 0u
@@ -186,6 +191,9 @@ type Lexer(fileName: string, text: string option, stream: IO.TextReader) =
         endPos <- (line, col)
         SyntaxErr(makeSyntaxErr fileName text startPos endPos kind)
 
+    let makeSyntaxErrWithStartAndEnd startPos endPos kind =
+        SyntaxErr(Errors.makeSyntaxErr fileName text startPos endPos kind)
+
     // Scanners --------------------------------------------------------
     //
     // Scanners scan forward from the current position to produce a
@@ -305,19 +313,52 @@ type Lexer(fileName: string, text: string option, stream: IO.TextReader) =
 
     // Comments --------------------------------------------------------
 
-    let scanComment start =
-        let chars = start @ nextCharWhile isNotNewline
-        let comment = stringFromChars chars
-        let token = makeToken (Comment comment)
-        token
+    let scanComment () =
+        let rec collect lines =
+            let lineChars = nextCharWhile isNotNewline
+            skipNextChar () |> ignore
 
-    let scanDocComment start =
-        let chars = start @ nextCharWhile isNotNewline
-        let comment = stringFromChars chars
-        let result = makeToken (DocComment comment)
-        result
+            match lineChars with
+            | [] -> lines
+            | lineChars ->
+                let line = (stringFromChars lineChars)
 
-    // Indentation & Whitespace ----------------------------------------
+                match nextCharIf isCommentIndicator with
+                | None -> lines @ [ line ]
+                | Some _ -> collect (lines @ [ line ])
+
+        collect [] |> Comment |> makeToken
+
+    let scanDocComment () =
+        let rec collect lines =
+            let lineChars = nextCharWhile isNotNewline
+            skipNextChar () |> ignore
+
+            match lineChars with
+            | [] -> lines
+            | lineChars ->
+                let line = (stringFromChars lineChars)
+
+                match nextCharIf isDocCommentIndicator with
+                | None -> lines @ [ line ]
+                | Some _ -> collect lines @ [ line ]
+
+        collect [] |> DocComment |> makeToken
+
+    // Indentation -----------------------------------------------------
+
+    let maybePushEndOfStatement () =
+        match lastToken with
+        | (None | Some(ScopeStart | FuncStart | EndOfStatement | Comment _)) -> ()
+        | _ -> pushResult (makeToken EndOfStatement)
+
+    let maybeDedent newLevel =
+        while indentLevel > newLevel do
+            pushResult (makeToken ScopeEnd)
+            pushResult (makeToken EndOfStatement)
+            indentLevel <- indentLevel - 1u
+
+        Continue
 
     /// Called when a newline is encountered.
     ///
@@ -328,9 +369,7 @@ type Lexer(fileName: string, text: string option, stream: IO.TextReader) =
     /// - Validates indent for line
     /// - Handles dedenting if a dedent is detected
     let handleNewline () =
-        match lastToken with
-        | (None | Some(ScopeStart | FuncStart | EndOfStatement)) -> ()
-        | _ -> pushResult (makeToken EndOfStatement)
+        maybePushEndOfStatement ()
 
         // XXX: Must be after emitting end-of-statement token.
         line <- line + 1u
@@ -362,46 +401,104 @@ type Lexer(fileName: string, text: string option, stream: IO.TextReader) =
                 Error(makeSyntaxErr kind)
 
         match peekChar () with
-        // Line is comment-only (which may be preceded by whitespace)
-        | Some '#' -> ()
+        // Blank line
+        | (None | Some('\n')) -> Continue
         // Line contains other tokens--check & maybe update indent level
         | _ ->
             if expectNewIndent () then
                 let expectedLevel = indentLevel + 1u
 
                 match getIndentLevel () with
-                | Ok newLevel when newLevel = expectedLevel -> indentLevel <- newLevel
-                | Ok newLevel -> pushResult (makeSyntaxErr (ExpectedIndent newLevel))
-                | Error err -> pushResult err
+                | Ok newLevel when newLevel = expectedLevel ->
+                    indentLevel <- newLevel
+                    Continue
+                | Ok newLevel -> makeSyntaxErr (ExpectedIndent newLevel)
+                | Error err -> err
             else
                 match getIndentLevel () with
-                | Error err -> pushResult err
+                | Error err -> err
                 | Ok newLevel when newLevel > indentLevel ->
-                    pushResult (makeSyntaxErr (UnexpectedIndent newLevel))
-                | Ok newLevel when newLevel < indentLevel ->
-                    while indentLevel > newLevel do
-                        pushResult (makeToken ScopeEnd)
-                        pushResult (makeToken EndOfStatement)
-                        indentLevel <- indentLevel - 1u
-                | _ ->
-                    // Do nothing when indent level doesn't change
-                    ()
+                    makeSyntaxErr (UnexpectedIndent newLevel)
+                | Ok newLevel when newLevel < indentLevel -> maybeDedent newLevel
+                // Do nothing when indent level doesn't change
+                | _ -> Continue
 
-        Continue
-
-    // Main Scanner ----------------------------------------------------
-
-    /// When the end of the stream is reached, it's first handled as a
+    /// When the end of the stream is reached, it's first handled like a
     /// newline for consistency and then `EOF` is emitted.
     let mutable emitEOF = false
 
+    let handleEOF () =
+        match emitEOF with
+        | false ->
+            emitEOF <- true
+            maybePushEndOfStatement ()
+            maybeDedent 0u
+        | true -> EOF
+
+    // Groupings -------------------------------------------------------
+
+    let handleBracket c =
+        let push openChar =
+            bracketStack.Push(openChar, startPos)
+
+            match openChar with
+            | '(' -> makeToken LParen
+            | ')' -> makeToken RParen
+            | '[' -> makeToken LBrace
+            | _ -> failwith $"Invalid group open character: {c}"
+
+        let pop actualCloseChar =
+            let opening = ref ('\000', (0u, 0u))
+
+            let makeErr () =
+                let (openChar, openPos) = opening.Value
+
+                let expectedCloseChar =
+                    match openChar with
+                    | '(' -> ')'
+                    | '[' -> ']'
+                    | '{' -> '}'
+                    | _ -> failwith $"Invalid group open character: {c}"
+
+                let kind =
+                    MismatchedBracket(
+                        openChar,
+                        openPos,
+                        expectedCloseChar,
+                        actualCloseChar,
+                        startPos
+                    )
+
+                makeSyntaxErr kind
+
+            if bracketStack.TryPop(opening) then
+                match actualCloseChar with
+                | ')' ->
+                    match opening.Value with
+                    | '(', _ -> makeToken RParen
+                    | _ -> makeErr ()
+                | ']' ->
+                    match opening.Value with
+                    | '[', _ -> makeToken RBracket
+                    | _ -> makeErr ()
+                | '}' ->
+                    match opening.Value with
+                    | '{', _ -> makeToken RBrace
+                    | _ -> makeErr ()
+                | _ -> failwith $"Invalid group close character: {c}"
+            else
+                makeSyntaxErr (UnmatchedClosingBracket actualCloseChar)
+
+        match c with
+        | ('(' | '[' | '{') as openChar -> push openChar
+        | (')' | ']' | '}') as closeChar -> pop closeChar
+        | _ -> failwith $"Invalid group character: {c}"
+
+    // Main Scanner ----------------------------------------------------
+
     let scan () =
         match nextChar (), peekChar () with
-        | None, _ when emitEOF -> EOF
-        | None, _ ->
-            eprintfn "handle EOF newline"
-            emitEOF <- true
-            handleNewline ()
+        | None, _ -> handleEOF ()
         | Some c, d ->
             startPos <- (line, col)
 
@@ -411,8 +508,9 @@ type Lexer(fileName: string, text: string option, stream: IO.TextReader) =
 
             match c, d with
             | '\n', _ ->
-                eprintfn "handle real newline"
-                handleNewline ()
+                match bracketStack.Count with
+                | 0 -> handleNewline ()
+                | _ -> Continue
 
             // Non-indentation whitespace between tokens.
             | ' ', _ ->
@@ -452,9 +550,6 @@ type Lexer(fileName: string, text: string option, stream: IO.TextReader) =
             // Assignment Operators ------------------------------------
             | '<', Some '-' -> skipMakeToken Feed
 
-            // Doc Comment ---------------------------------------------
-            | '/', Some '/' -> scanDocComment [ '/'; '/' ]
-
             // 1-character Tokens ======================================
 
             // Misc ----------------------------------------------------
@@ -463,12 +558,7 @@ type Lexer(fileName: string, text: string option, stream: IO.TextReader) =
             | '.', _ -> makeToken Dot
 
             // Groupings -----------------------------------------------
-            | '(', _ -> makeToken LParen
-            | ')', _ -> makeToken RParen
-            | '[', _ -> makeToken LBrace
-            | ']', _ -> makeToken RBrace
-            | '{', _ -> makeToken LBracket
-            | '}', _ -> makeToken RBracket
+            | ('(' | ')' | '[' | ']' | '{' | '}') as c, _ -> handleBracket c
 
             // Unary Operators -----------------------------------------
             | '!', _ -> makeToken BangBang
@@ -497,8 +587,9 @@ type Lexer(fileName: string, text: string option, stream: IO.TextReader) =
             | f, _ when Char.IsAsciiLetter(f) -> scanKeywordOrIdent f
             | '$', Some f when Char.IsAsciiLetter(f) -> scanSpecialKeywordOrIdent ()
 
-            // Comment -------------------------------------------------
-            | '#', _ -> scanComment [ '#' ]
+            // Comments -------------------------------------------------
+            | '#', _ -> scanComment ()
+            | ';', _ -> scanDocComment ()
 
             // Errors --------------------------------------------------
             | _ ->
@@ -534,27 +625,30 @@ type Lexer(fileName: string, text: string option, stream: IO.TextReader) =
     /// Get all tokens at once as a list of `Result`s. If a syntax error
     /// is encountered, the last item will be a `SyntaxErr`; otherwise
     /// the last item will be `EOF`.
-    member this.tokens() =
-        let rec loop tokens =
+    member this.all() =
+        let rec loop results =
             match this.next () with
-            | Token _ as result -> [ result ] @ (loop tokens)
+            | Continue -> loop results
+            | Token _ as result -> [ result ] @ (loop results)
             | result -> [ result ]
 
         loop []
 
 let fromText (fileName: string) (text: string) =
-    Lexer(fileName, Some text, new IO.StringReader(text))
+    let stream = new IO.StringReader(text)
+    Lexer(stream, fileName, Some text)
 
-let fromFile (fileName: string) =
-    Lexer(fileName, None, new IO.StreamReader(fileName))
+let fromFile (path: string) =
+    let stream = new IO.StreamReader(path)
+    Lexer(stream, path, None)
 
 let tokensFromText (fileName: string) (text: string) =
     let lexer = fromText fileName text
-    lexer.tokens ()
+    lexer.all ()
 
 let tokensFromFile (fileName: string) =
     let lexer = fromFile fileName
-    lexer.tokens ()
+    lexer.all ()
 
 let formatResult result =
     match result with

@@ -58,9 +58,13 @@ let ``lex file`` () =
 
     assertTokenEqual (lexer.next ()) ((1u, 1u), (1u, 3u)) Tokens.Nil
     assertTokenEqual (lexer.next ()) ((1u, 4u), (1u, 4u)) Tokens.EndOfStatement
-    assertTokenEqual (lexer.next ()) ((2u, 1u), (2u, 9u)) (Tokens.Comment "# comment")
 
-    let remainingTokens = lexer.tokens ()
+    assertTokenEqual
+        (lexer.next ())
+        ((2u, 1u), (2u, 10u))
+        (Tokens.Comment [ " comment" ])
+
+    let remainingTokens = lexer.all ()
     let lastToken = List.last remainingTokens
     Assert.Equal(EOF, lastToken)
 

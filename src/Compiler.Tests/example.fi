@@ -13,8 +13,8 @@ true
 false
 
 
-// doc comment line 1
-// doc comment line 2
+; doc comment line 1
+; doc comment line 2
 0.0
 1.1 + 2.2
 
@@ -32,3 +32,6 @@ block -> nil
 
 block ->
     nil
+
+; Doc comment
+f = () -> 1

@@ -4,11 +4,14 @@ open System.Globalization
 
 open LexerUtil
 
+type Pos = uint * uint
+type Span = Pos * Pos
+
 type Token =
     | EndOfStatement
     // Comments --------------------------------------------------------
-    | Comment of string
-    | DocComment of string
+    | Comment of string list
+    | DocComment of string list
     // Scopes ----------------------------------------------------------
     | ScopeStart
     | FuncStart
@@ -92,9 +95,7 @@ let intFromHexChars chars =
 let floatFromChars chars = stringFromChars chars |> float |> Float
 
 /// Token with its span in the source stream.
-type SpanToken =
-    { span: (uint * uint) * (uint * uint)
-      token: Token }
+type SpanToken = { span: Span; token: Token }
 
 let makePosToken startPos endPos token =
     { span = (startPos, endPos)
