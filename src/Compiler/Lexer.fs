@@ -11,15 +11,19 @@ let INDENT_SIZE = 4u
 let READ_BUF_MAX = 1024
 
 type Result =
-    | Continue
     | Token of SpanToken
     | EOF
     | SyntaxErr of SyntaxErr
+    // Internal indicator to NOT emit a token and continue scanning.
+    // This should NEVER be emitted into the result stream.
+    | Continue
+    // Indicates an internal logic error.
+    | InternalErr of string
 
 /// The `Lexer` converts a `stream` of chars to tokens. These tokens can
 /// be retrieved by repeatedly calling the `next` method until an `EOF`
-/// or `SyntaxErr` result is returned. The `all` method can be used to
-/// get all the tokens as a list of `Result`s for use in tests.
+/// or `SyntaxErr` is returned. The `all` method can be used to get all
+/// tokens for use in tests.
 ///
 /// The `Lexer` is relatively simple, only concerning itself with
 /// generating tokens, handling indents/dedents (since these take the
@@ -28,7 +32,12 @@ type Result =
 /// the generated tokens represent a valid program.
 ///
 /// The `fileName` and `text` properties are only used when constructing
-/// errors in order to create more informative error messages.
+/// errors in order to create more informative error messages. `fileName`
+/// can be a path to a source file or a synthetic name such as `<text>`.
+/// The latter is used when the source is passed as a string via `text`.
+/// When a file path is passed, the file is read when an error is
+/// encountered to show context for the error. When `text` is passed,
+/// it's used to show the error context instead.
 type Lexer(stream: IO.TextReader, fileName: string, text: string option) =
     /// Characters are read from the input `stream` into this buffer and
     /// then into a queue, which is refilled as needed when `peek` and
@@ -363,9 +372,10 @@ type Lexer(stream: IO.TextReader, fileName: string, text: string option) =
     /// Called when a newline is encountered.
     ///
     /// - Adds end-of-statement token when appropriate
-    /// - Increments `line` and resets `col`
-    /// - Handles blank and comment-only lines
-    /// - Checks whether a new indent is expected
+    /// - Increments `line` and resets `col` to 0
+    /// - Handles blank lines (effectively skipping them)
+    /// - Checks whether a new indent is expected (if the newline
+    ///   follows a `->` or `=>` token)
     /// - Validates indent for line
     /// - Handles dedenting if a dedent is detected
     let handleNewline () =
@@ -403,7 +413,7 @@ type Lexer(stream: IO.TextReader, fileName: string, text: string option) =
         match peekChar () with
         // Blank line
         | (None | Some('\n')) -> Continue
-        // Line contains other tokens--check & maybe update indent level
+        // Statement -- check & maybe update indent level
         | _ ->
             if expectNewIndent () then
                 let expectedLevel = indentLevel + 1u
@@ -412,7 +422,7 @@ type Lexer(stream: IO.TextReader, fileName: string, text: string option) =
                 | Ok newLevel when newLevel = expectedLevel ->
                     indentLevel <- newLevel
                     Continue
-                | Ok newLevel -> makeSyntaxErr (ExpectedIndent newLevel)
+                | Ok newLevel -> makeSyntaxErr (ExpectedIndent expectedLevel)
                 | Error err -> err
             else
                 match getIndentLevel () with
@@ -423,82 +433,50 @@ type Lexer(stream: IO.TextReader, fileName: string, text: string option) =
                 // Do nothing when indent level doesn't change
                 | _ -> Continue
 
+    // Groupings -------------------------------------------------------
+
+    let handleGroupCloseChar closeChar =
+        let makeErr openChar openPos =
+            makeSyntaxErr (MismatchedBracket(openChar, openPos, closeChar, startPos))
+
+        let opening = ref ('\000', (0u, 0u))
+
+        if bracketStack.TryPop(opening) then
+            let (openChar, openPos) = opening.Value
+
+            match closeChar with
+            | ')' ->
+                match openChar with
+                | '(' -> makeToken RParen
+                | _ -> makeErr openChar openPos
+            | ']' ->
+                match opening.Value with
+                | '[', _ -> makeToken RBracket
+                | _ -> makeErr openChar openPos
+            | '}' ->
+                match opening.Value with
+                | '{', _ -> makeToken RBrace
+                | _ -> makeErr openChar openPos
+            | _ -> InternalErr $"Invalid group close character: {closeChar}"
+        else
+            makeSyntaxErr (UnmatchedClosingBracket closeChar)
+
+    // Main Scanner ----------------------------------------------------
+
     /// When the end of the stream is reached, it's first handled like a
     /// newline for consistency and then `EOF` is emitted.
     let mutable emitEOF = false
 
-    let handleEOF () =
-        match emitEOF with
-        | false ->
-            emitEOF <- true
-            maybePushEndOfStatement ()
-            maybeDedent 0u
-        | true -> EOF
-
-    // Groupings -------------------------------------------------------
-
-    let handleBracket c =
-        let push openChar =
-            bracketStack.Push(openChar, startPos)
-
-            match openChar with
-            | '(' -> makeToken LParen
-            | ')' -> makeToken RParen
-            | '[' -> makeToken LBrace
-            | _ -> failwith $"Invalid group open character: {c}"
-
-        let pop actualCloseChar =
-            let opening = ref ('\000', (0u, 0u))
-
-            let makeErr () =
-                let (openChar, openPos) = opening.Value
-
-                let expectedCloseChar =
-                    match openChar with
-                    | '(' -> ')'
-                    | '[' -> ']'
-                    | '{' -> '}'
-                    | _ -> failwith $"Invalid group open character: {c}"
-
-                let kind =
-                    MismatchedBracket(
-                        openChar,
-                        openPos,
-                        expectedCloseChar,
-                        actualCloseChar,
-                        startPos
-                    )
-
-                makeSyntaxErr kind
-
-            if bracketStack.TryPop(opening) then
-                match actualCloseChar with
-                | ')' ->
-                    match opening.Value with
-                    | '(', _ -> makeToken RParen
-                    | _ -> makeErr ()
-                | ']' ->
-                    match opening.Value with
-                    | '[', _ -> makeToken RBracket
-                    | _ -> makeErr ()
-                | '}' ->
-                    match opening.Value with
-                    | '{', _ -> makeToken RBrace
-                    | _ -> makeErr ()
-                | _ -> failwith $"Invalid group close character: {c}"
-            else
-                makeSyntaxErr (UnmatchedClosingBracket actualCloseChar)
-
-        match c with
-        | ('(' | '[' | '{') as openChar -> push openChar
-        | (')' | ']' | '}') as closeChar -> pop closeChar
-        | _ -> failwith $"Invalid group character: {c}"
-
-    // Main Scanner ----------------------------------------------------
-
     let scan () =
         match nextChar (), peekChar () with
-        | None, _ -> handleEOF ()
+        | None, _ ->
+            match emitEOF with
+            | false ->
+                emitEOF <- true
+                maybePushEndOfStatement ()
+                maybeDedent 0u
+            | true -> EOF
+
         | Some c, d ->
             startPos <- (line, col)
 
@@ -558,7 +536,17 @@ type Lexer(stream: IO.TextReader, fileName: string, text: string option) =
             | '.', _ -> makeToken Dot
 
             // Groupings -----------------------------------------------
-            | ('(' | ')' | '[' | ']' | '{' | '}') as c, _ -> handleBracket c
+            | '(' as openChar, _ ->
+                bracketStack.Push(openChar, startPos)
+                makeToken LParen
+            | '[' as openChar, _ ->
+                bracketStack.Push(openChar, startPos)
+                makeToken LBracket
+            | '{' as openChar, _ ->
+                bracketStack.Push(openChar, startPos)
+                makeToken LBrace
+
+            | (')' | ']' | '}') as closeChar, _ -> handleGroupCloseChar closeChar
 
             // Unary Operators -----------------------------------------
             | '!', _ -> makeToken BangBang
@@ -652,7 +640,8 @@ let tokensFromFile (fileName: string) =
 
 let formatResult result =
     match result with
-    | Continue -> "<continue>"
     | Token token -> formatPosToken token
     | EOF -> "EOF"
     | SyntaxErr err -> formatSyntaxErr err
+    | Continue -> "<continue>"
+    | InternalErr message -> $"Internal error: {message}"

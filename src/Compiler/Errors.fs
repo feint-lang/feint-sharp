@@ -15,12 +15,11 @@ type SyntaxErrKind =
     | MismatchedBracket of
         openChar: char *
         openPos: Pos *
-        expectedCloseChar: char *
-        actualCloseChar: char *
+        closeChar: char *
         closePos: Pos
     | UnmatchedClosingBracket of closeChar: char
     // Indentation
-    | ExpectedIndent of level: uint
+    | ExpectedIndent of expectedLevel: uint
     | UnexpectedIndent of level: uint
     | InvalidIndent of count: uint
     // Numbers
@@ -60,10 +59,19 @@ let formatSyntaxErrKind (kind: SyntaxErrKind) =
     | Tab -> "TAB cannot be used for indentation or whitespace"
     | UnhandledChar c -> $"Unhandled character: {c}"
     // Groupings
-    | MismatchedBracket(openChar, openPos, expectedCloseChar, actualCloseChar, closePos) ->
+    | MismatchedBracket(openChar, openPos, closeChar, closePos) ->
         let (openLine, openCol) = openPos
         let (closeLine, closeCol) = closePos
-        $"Mismatched bracket: expected closing {expectedCloseChar} at {closeLine}:{closeCol} to match opening {openChar} at {openLine}:{openCol}; got {actualCloseChar}"
+
+        let expectedCloseChar =
+            match openChar with
+            | '(' -> ')'
+            | '[' -> '}'
+            | '{' -> '}'
+            | other -> failwith $"Unexpected group open character: {other}"
+
+        $"Mismatched bracket: expected {expectedCloseChar} at {closeLine}:{closeCol} \
+          to match {openChar} at {openLine}:{openCol}; got {closeChar}"
     | UnmatchedClosingBracket c -> $"Unmatched closing bracket: {c}"
     // Indentation
     | ExpectedIndent level -> $"Expected indent to level {level}"
@@ -98,11 +106,10 @@ let formatSyntaxErr (err: SyntaxErr) =
         sourceLine <- stream.ReadLine()
         lineNo <- lineNo + 1u
 
-    let width = int (sCol - 1u)
-    let space = Array.create width ' ' |> stringFromChars
-
-    let width = int (eCol - sCol + 1u)
-    let indicator = Array.create width '^' |> stringFromChars
+    let spaceWidth = int (sCol - 1u)
+    let indicatorWidth = int (eCol - sCol + 1u)
+    let space = Array.create spaceWidth ' ' |> stringFromChars
+    let indicator = Array.create indicatorWidth '^' |> stringFromChars
 
     let lines =
         [ $"Syntax error in '{fileName}' on line {sLine} at column {sCol}:"
